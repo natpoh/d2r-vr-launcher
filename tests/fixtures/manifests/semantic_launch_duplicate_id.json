@@ -1,0 +1,33 @@
+{
+  "schema": "vrmod-manifest/1",
+  "id": "mini-mod",
+  "name": "Mini",
+  "version": "1.0.0",
+  "game": {
+    "id": "d2r"
+  },
+  "exclusive_group": "g",
+  "files": [
+    {
+      "src": "a.dll",
+      "dst": "{game}/a.dll",
+      "role": "program"
+    }
+  ],
+  "launch": {
+    "options": [
+      {
+        "id": "go",
+        "label": "A",
+        "kind": "exec",
+        "exe": "{game}/x.exe"
+      },
+      {
+        "id": "go",
+        "label": "B",
+        "kind": "exec",
+        "exe": "{game}/y.exe"
+      }
+    ]
+  }
+}

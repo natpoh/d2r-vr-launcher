@@ -1,0 +1,126 @@
+{
+  "schema": "vrmod-manifest/1",
+  "id": "d2r-vr",
+  "name": "D2R VR",
+  "version": "0.165.0",
+  "edition": "full",
+  "publisher": "BodyWalkVR",
+  "homepage": "https://bodywalkvr.com/mods/d2r-vr",
+  "support": "https://discord.gg/kVYjEdJx3e",
+  "license": "MIT",
+  "description": "Diablo II: Resurrected in a VR headset: native OpenXR, or BodyWalk + FlatVR.",
+  "build": { "commit": "<set by the build>", "date": "<set by the build>", "channel": "release" },
+  "game": {
+    "id": "d2r",
+    "builds": ["3.3.93787"],
+    "stores": ["steam", "battlenet"],
+    "processes": ["D2R.exe", "D2RLoader.exe", "D2R_VR_Settings.exe"]
+  },
+  "exclusive_group": "d2r-vr-plugin",
+  "identity": {
+    "plugin_id": "d2r-vr-vrcam",
+    "plugin_file": "d2rl-vrcam.dll",
+    "product_name": "D2R VR",
+    "dll_sha256": [],
+    "markers": ["BodyWalk Game Link"],
+    "about_file": "{game}/d2rloader/plugins/d2r_vr_about.json",
+    "log": "{game}/d2rloader/logs/d2r-vr-vrcam.log"
+  },
+  "requires": [
+    {
+      "id": "d2rloader",
+      "version": "1.3.1-beta",
+      "provider": "launcher",
+      "note": "File hashes measured on the development machine's installed 1.3.1-beta (the ZIP's two archive hashes are in deps.cpp); confirm against a fresh unpack before pinning.",
+      "files": [
+        { "path": "{game}/D2RLoader.exe", "sha256_any_of": ["93021dad48533bcfca8a95c69a0cc00cdb9008a3ce6ceba1d04c7aca71985a10"] },
+        { "path": "{game}/D2RCore.dll", "sha256_any_of": ["2a868d013d2e0830bd2d9e04b918b19e46a73cf726c833e70d089b948fdeb5a2"] },
+        { "path": "{game}/d2rloader.mpq", "sha256_any_of": ["1f02aa4e3179cb8a8417125160aa3ef18003ea81ee1a4f54e0a76fd3f22d933b"] }
+      ]
+    },
+    {
+      "id": "reshade",
+      "version": ">=6.7",
+      "provider": "mod",
+      "optional": true,
+      "note": "The fog, the sky and the depth for FlatVR need it. D2R VR Settings has the Install ReShade button.",
+      "files": [{ "path": "{game}/ReShade64.dll" }]
+    },
+    {
+      "id": "bodywalk",
+      "version": ">=1.79",
+      "provider": "mod",
+      "optional": true,
+      "note": "Needed unless native OpenXR with Controls without BodyWalk. Its Game Link plugin, manifest and profile are external files of this mod."
+    }
+  ],
+  "files": [
+    { "src": "payload/d2rloader/plugins/d2rl-vrcam.dll", "dst": "{game}/d2rloader/plugins/d2rl-vrcam.dll", "role": "program" },
+    { "src": "payload/D2R_VR_Settings.exe", "dst": "{game}/D2R_VR_Settings.exe", "role": "program" },
+    { "src": "payload/D2R_VR_LICENSE.txt", "dst": "{game}/D2R_VR_LICENSE.txt", "role": "asset" },
+    { "src": "payload/reshade-shaders/Shaders/D2R_DepthFog.fx", "dst": "{game}/reshade-shaders/Shaders/D2R_DepthFog.fx", "role": "asset" },
+    { "src": "payload/sky_common/", "dst": "{game}/reshade-shaders/Textures/D2R_Sky_ours/", "role": "shared", "note": "the 24 skies and the crosshair d2r-pcvr ships byte for byte" },
+    { "src": "payload/sky_ours/", "dst": "{game}/reshade-shaders/Textures/D2R_Sky_ours/", "role": "asset", "note": "the cave and dungeon ceilings only this mod has" },
+    { "src": "payload/FlatVR_DepthProvider.addon64", "dst": "{game}/FlatVR_DepthProvider.addon64", "role": "program", "optional": true, "tag": "vr" },
+    { "src": "payload/FlatVR_Keepalive.addonfx", "dst": "{game}/FlatVR_Keepalive.addonfx", "role": "program", "optional": true, "tag": "vr" },
+    { "src": "payload/user/d2r_vr.ini", "dst": "{game}/d2rloader/plugins/d2r_vr.ini", "role": "config", "seed": "payload/d2r_vr.default.ini", "note": "the player's settings, kept per game; the default ini is the seed of a first activation" },
+    { "src": "payload/user/ReShade.ini", "dst": "{game}/ReShade.ini", "role": "config", "optional": true, "note": "written by ReShade's own setup; this mod's setup of it is kept with the mod" },
+    { "src": "payload/user/ReShadePreset.ini", "dst": "{game}/ReShadePreset.ini", "role": "config", "optional": true },
+    { "dst": "{game}/d2rloader/plugins/d2r_vr_*", "role": "generated", "note": "d2r_vr_settings.ini, d2r_vr_headset.ini, d2r_vr_game_code.txt, d2r_vr_reshade_ours.txt, d2r_vr_skill_icons/ ... made while the mod runs" },
+    { "dst": "{game}/FlatVR_DepthProvider.log", "role": "generated" }
+  ],
+  "external": [
+    { "dst": "{localappdata}/BodyWalkVR/plugins/game_link/game_link.dll", "note": "BodyWalk's Game Link plugin; never swapped, harmless while the mod is not active" },
+    { "dst": "{localappdata}/BodyWalkVR/plugins/game_link/profile.json", "note": "BodyWalk imports it as 'D2VR (mod)' and re-imports it over the player's own at once - the launcher never touches it" },
+    { "dst": "{localappdata}/BodyWalkVR/game_link/d2r.txt", "note": "the game's Game Link manifest" },
+    { "dst": "{game}/BodyWalkVR/", "note": "BodyWalk Portable, only when the player had no BodyWalk" },
+    { "dst": "{appdata}/Microsoft/Windows/Start Menu/Programs/D2R VR Settings.lnk" }
+  ],
+  "settings_app": { "exe": "{game}/D2R_VR_Settings.exe", "requires_active": true, "hint": "also in the headset: both grips, then a thumbstick click" },
+  "launch": {
+    "options": [
+      {
+        "id": "default",
+        "label": "Start D2R VR",
+        "kind": "exec",
+        "exe": "{game}/D2R_VR_Settings.exe",
+        "args": ["--start"],
+        "cwd": "{game}",
+        "via": "auto",
+        "stores": ["steam", "battlenet"],
+        "runtimes": ["system", "steamvr", "vdxr", "file"],
+        "env": [
+          { "unset": ["SteamOverlayGameId"] },
+          { "stores": ["steam"], "unset": ["SteamAppId", "SteamGameId"], "set": { "SteamAppId": "2536520", "SteamGameId": "2536520" } },
+          { "stores": ["battlenet"], "unset": ["SteamAppId", "SteamGameId"] }
+        ],
+        "x-note": "--start is a new switch of D2R_VR_Settings.exe: the START button without the window (D2RLoader.exe, and BodyWalk / FlatVR when the ini asks for them). The runtime chosen by the launcher reaches it as XR_RUNTIME_JSON."
+      }
+    ]
+  },
+  "hooks": {},
+  "preconditions": [
+    { "type": "process_absent", "names": ["D2R.exe", "D2RLoader.exe", "D2R_VR_Settings.exe"], "applies_to": ["activate", "deactivate"], "message": "Close the game and D2R VR Settings first." },
+    { "type": "file_exists", "file": "{game}/D2RLoader.exe", "applies_to": ["activate", "start"], "message": "D2RLoader is not installed in this game folder - the mod runs only under it." },
+    { "type": "toml_value", "file": "{game}/d2rloader/config/d2rloader.toml", "key": "d2rloader.advanced.allow_global_extensions", "equals": true, "severity": "warn", "applies_to": ["activate"], "message": "D2RLoader will not load global plugins: set allow_global_extensions = true." }
+  ],
+  "import": {
+    "backups": {
+      "globs": [
+        "{game}/d2rloader/plugins/*.before_*",
+        "{game}/D2R_VR_Settings.exe.*",
+        "{game}/reshade-shaders/Shaders/*.before_*",
+        "{game}/ReShade.ini.before_*"
+      ]
+    }
+  },
+  "logs": [
+    "{game}/d2rloader/logs/d2r-vr-vrcam.log",
+    "{game}/d2rloader/logs/d2r_vr_start.txt",
+    "{game}/d2rloader/logs/d2r_vr_hang.txt",
+    "{game}/d2rloader/plugins/d2r_vr_headset.ini",
+    "{game}/ReShade.log"
+  ],
+  "update": { "kind": "http-json", "url": "https://bodywalkvr.com/api/version?product=d2r_vr", "opens": "homepage" },
+  "uninstall": { "exe": "{game}/unins000.exe", "args": ["/SILENT"], "needs_admin": true }
+}

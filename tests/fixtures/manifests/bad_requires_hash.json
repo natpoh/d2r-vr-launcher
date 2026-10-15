@@ -1,0 +1,30 @@
+{
+  "schema": "vrmod-manifest/1",
+  "id": "mini-mod",
+  "name": "Mini",
+  "version": "1.0.0",
+  "game": {
+    "id": "d2r"
+  },
+  "exclusive_group": "g",
+  "files": [
+    {
+      "src": "a.dll",
+      "dst": "{game}/a.dll",
+      "role": "program"
+    }
+  ],
+  "requires": [
+    {
+      "id": "d2rloader",
+      "files": [
+        {
+          "path": "{game}/D2RLoader.exe",
+          "sha256_any_of": [
+            "nothex"
+          ]
+        }
+      ]
+    }
+  ]
+}

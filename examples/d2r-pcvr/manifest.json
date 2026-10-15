@@ -1,0 +1,118 @@
+{
+  "schema": "vrmod-manifest/1",
+  "id": "d2r-pcvr",
+  "name": "D2R PCVR",
+  "version": "0.3.13",
+  "edition": "windows-preview",
+  "publisher": "bearstonem",
+  "homepage": "https://github.com/bearstonem/d2r-pcvr",
+  "support": "https://github.com/bearstonem/d2r-pcvr/issues",
+  "license": "MIT",
+  "description": "Diablo II: Resurrected in first-person VR with motion controls: native OpenXR through SteamVR or Virtual Desktop.",
+  "game": {
+    "id": "d2r",
+    "builds": ["3.3.93787", "3.3.93847"],
+    "stores": ["steam", "battlenet"],
+    "processes": ["D2R.exe", "D2RLoader.exe"]
+  },
+  "exclusive_group": "d2r-vr-plugin",
+  "identity": {
+    "plugin_id": "d2r-vr-vrcam",
+    "plugin_file": "d2rl-vrcam.dll",
+    "product_name": "D2R PCVR",
+    "dll_sha256": [],
+    "markers": ["Frame effects: preloaded shader compiler"],
+    "about_file": "{game}/d2rloader/plugins/d2r_pcvr_about.json",
+    "log": "{game}/d2rloader/logs/d2r-vr-vrcam.log"
+  },
+  "requires": [
+    {
+      "id": "d2rloader",
+      "version": "1.3.1-beta",
+      "provider": "launcher",
+      "note": "His installer downloads and verifies it today (steamvr/install.py, LOADER_HASHES = the same two hashes); in the shared design the launcher does. The three file hashes are the ones measured for D2R VR's example; they are the same bytes."
+    },
+    {
+      "id": "reshade",
+      "version": "6.8.0",
+      "provider": "mod",
+      "note": "His install.py cuts ReShade64.dll out of ReShade_Setup_6.8.0_Addon.exe (setup SHA-256 afe4c8f13048306307983b8b3d41d5bf00a86820440b0e57dea10950e1176445); the DLL's own hash was not measured.",
+      "files": [{ "path": "{game}/ReShade64.dll" }]
+    },
+    { "id": "steam", "provider": "user", "note": "his install adds Steam library shortcuts and sets the Steam launch options of app 2536520" },
+    { "id": "openxr-runtime", "provider": "user", "note": "SteamVR or Virtual Desktop's VDXR, chosen per start with XR_RUNTIME_JSON" }
+  ],
+  "files": [
+    { "src": "payload/d2rloader/plugins/d2rl-vrcam.dll", "dst": "{game}/d2rloader/plugins/d2rl-vrcam.dll", "role": "program" },
+    { "src": "payload/openxr_loader.dll", "dst": "{game}/openxr_loader.dll", "role": "program", "note": "loaded by name from the game folder (transport.cpp LoadLibraryW)" },
+    { "src": "payload/reshade-shaders/Shaders/D2R_DepthFog.fx", "dst": "{game}/reshade-shaders/Shaders/D2R_DepthFog.fx", "role": "asset" },
+    { "src": "payload/sky/", "dst": "{game}/reshade-shaders/Textures/D2R_Sky_ours/", "role": "shared", "note": "24 skies and the crosshair, byte for byte the same as D2R VR's" },
+    { "src": "payload/sky/", "dst": "{game}/D2R_Sky_ours/", "role": "asset", "note": "install.py also copies them beside D2R.exe" },
+    { "src": "payload/user/d2r_vr.ini", "dst": "{game}/d2rloader/plugins/d2r_vr.ini", "role": "config", "seed": "payload/d2r_vr.recommended.ini", "note": "install.py writes the recommended ini; calibration lives in it" },
+    { "src": "payload/user/ReShade.ini", "dst": "{game}/ReShade.ini", "role": "config", "seed": "payload/ReShade.recommended.ini" },
+    { "src": "payload/user/D2R_Frame_ReShade.ini", "dst": "{game}/D2R_Frame_ReShade.ini", "role": "config", "seed": "payload/D2R_Frame_ReShade.recommended.ini" },
+    { "dst": "{game}/d2rloader/plugins/d2r_vr_icons/", "role": "generated", "note": "item and skill icons extracted from the player's own game (a cache; not redistributable)" },
+    { "dst": "{game}/d2rloader/plugins/d2r_vr_potions/", "role": "generated", "note": "potion models extracted from the player's own game" },
+    { "dst": "{game}/d2rloader/pcvr-install.json", "role": "generated", "note": "his installation record (backups chain); the importer reads it" }
+  ],
+  "external": [
+    { "dst": "{steam}/userdata/*/config/localconfig.vdf", "note": "LaunchOptions of app 2536520: the Python wrapper; restored by his uninstall. Not needed once the launcher starts the game itself" },
+    { "dst": "{steam}/userdata/*/config/shortcuts.vdf", "note": "the VR library shortcuts" },
+    { "dst": "{saved_games}/Diablo II Resurrected/Settings.json", "note": "video settings (VSync, DLSS, AA...); shared with D2R VR's video page, never swapped" },
+    { "dst": "{localappdata}/Programs/D2R PCVR/", "note": "the helper folder: private Python, setup-backups, managed-installations.json" }
+  ],
+  "settings_app": null,
+  "settings_hint": "In VR: left grip + Frame Left B / Quest Left Y",
+  "launch": {
+    "options": [
+      {
+        "id": "openxr",
+        "label": "Start D2R PCVR",
+        "kind": "exec",
+        "exe": "{game}/D2RLoader.exe",
+        "args": [],
+        "cwd": "{game}",
+        "via": "auto",
+        "stores": ["steam", "battlenet"],
+        "runtimes": ["steamvr", "vdxr"],
+        "env": [
+          { "unset": ["SteamOverlayGameId"] },
+          { "stores": ["steam"], "unset": ["SteamAppId", "SteamGameId"], "set": { "SteamAppId": "2536520", "SteamGameId": "2536520" } },
+          { "stores": ["battlenet"], "unset": ["SteamAppId", "SteamGameId"] }
+        ],
+        "needs": [
+          { "type": "process_absent", "names": ["BodyWalkVR.exe"], "severity": "warn", "applies_to": ["start"], "message": "BodyWalk / FlatVR running next to D2R PCVR may fight for the headset." }
+        ]
+      }
+    ]
+  },
+  "preconditions": [
+    { "type": "process_absent", "names": ["D2R.exe", "D2RLoader.exe"], "applies_to": ["activate", "deactivate", "install", "repair"], "message": "Save & Exit D2R first." },
+    { "type": "process_absent", "names": ["steam.exe"], "applies_to": ["install", "repair"], "message": "Use Steam > Exit: his setup edits Steam's configuration." },
+    { "type": "file_exists", "file": "{game}/D2RLoader.exe", "applies_to": ["activate", "start"], "message": "D2RLoader is not installed in this game folder." }
+  ],
+  "import": {
+    "backups": {
+      "record": { "file": "{game}/d2rloader/pcvr-install.json", "paths_at": "/snapshots" }
+    }
+  },
+  "logs": [
+    "{game}/d2rloader/logs/d2r-vr-vrcam.log",
+    "{game}/d2rloader/logs/pcvr-launch.log",
+    "{game}/ReShade.log"
+  ],
+  "update": { "kind": "github-release", "repo": "bearstonem/d2r-pcvr", "tag": "v*-windows-preview" },
+  "uninstall": { "exe": "{localappdata}/Programs/D2R PCVR/unins000.exe", "args": ["/SILENT"] },
+  "x-unverified": [
+    "/identity/dll_sha256 (no build was measured)",
+    "/identity/markers (the string is in his source, not checked in a binary)",
+    "/identity/about_file (a proposal: his plugin does not write one yet)",
+    "/identity/plugin_id (today the same as D2R VR's; a unique id is proposed)",
+    "/files/*/src (the package layout under payload/ is a proposal: today install.py writes the files itself)",
+    "/files/5-7 seed (his installer builds the inis from d2r_vr.ini plus a table of forced values, not from files)",
+    "/requires/1 (the ReShade64.dll hash)",
+    "/launch/options/0 (derived from launch_windows.py; not run)",
+    "/uninstall/exe (the default Inno name in his {app})",
+    "/game/builds (3.3.93847 is his experimental Battle.net build)"
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "schema": "vrmod-manifest/1",
+  "id": "mini-mod",
+  "name": "Mini",
+  "version": "1.0.0",
+  "game": {
+    "id": "d2r"
+  },
+  "exclusive_group": "g",
+  "files": [
+    {
+      "src": "p.dll",
+      "dst": "{game}/d2rloader/plugins/p.dll",
+      "role": "program"
+    },
+    {
+      "src": "a/",
+      "dst": "{game}/assets/",
+      "role": "asset"
+    },
+    {
+      "src": "c.ini",
+      "dst": "{game}/c.ini",
+      "role": "config",
+      "seed": "c.default.ini"
+    },
+    {
+      "src": "s/",
+      "dst": "{game}/shared/",
+      "role": "shared"
+    },
+    {
+      "dst": "{game}/logs/*.log",
+      "role": "generated"
+    }
+  ]
+}

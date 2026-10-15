@@ -1,0 +1,17 @@
+{
+  "schema": "vrmod-manifest/1",
+  "id": "a",
+  "name": "Mini",
+  "version": "1.0.0",
+  "game": {
+    "id": "d2r"
+  },
+  "exclusive_group": "g",
+  "files": [
+    {
+      "src": "a.dll",
+      "dst": "{game}/a.dll",
+      "role": "program"
+    }
+  ]
+}
