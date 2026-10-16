@@ -1001,6 +1001,7 @@ ImportReport Engine::Import(const fs::path& game, const std::string& id, bool fo
                 EnsureDir(to.parent_path());
                 fs::copy(it->path(), to, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec2);
                 if (!ec2) ++rep.backups;
+                else rep.notes.push_back("could not copy the backup " + U(it->path()) + " completely: " + ec2.message() + " (a path over 260 characters?)");
             }
         }
     }
@@ -1024,6 +1025,7 @@ ImportReport Engine::Import(const fs::path& game, const std::string& id, bool fo
                         if (fs::is_directory(from)) fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec2);
                         else { EnsureDir(to); fs::copy_file(from, to / from.filename(), fs::copy_options::overwrite_existing, ec2); }
                         if (!ec2) ++rep.backups;
+                        else rep.notes.push_back("could not copy the backup " + U(from) + " completely: " + ec2.message() + " (a path over 260 characters?)");
                     }
                 }
             } catch (const JsonError&) {
@@ -1038,6 +1040,35 @@ ImportReport Engine::Import(const fs::path& game, const std::string& id, bool fo
     st.active[m.group] = nm;
     SaveState(game, st);
     if (svc_.log) svc_.log->Line("imported " + id + " " + m.version + " in " + U(game) + ": " + std::to_string(rep.adopted) + " files adopted, " + std::to_string(rep.captured) + " settings captured, " + std::to_string(rep.backups) + " backups copied");
+    return rep;
+}
+
+SettingsImportReport Engine::ImportSettings(const fs::path& game, const std::string& id, const fs::path& from) {
+    RequireGame(game);
+    const GameDirs d = Dirs(game);
+    if (Exists(d.journal)) Throw("E_JOURNAL", "an earlier switch did not finish: run `vrmodlauncher recover` first");
+    const Manifest m = reg_.Load(id);
+    GameState st = LoadState(game);
+    auto cur = st.active.find(m.group);
+    if (cur != st.active.end() && cur->second.id == id)
+        Throw("E_IN_USE", "\"" + id + "\" is active here: its files in the game folder are its settings (deactivate it first, or copy the file in)");
+    if (!IsDir(from) || IsReparsePoint(from)) Throw("E_NOT_FOUND", U(from) + " is not a folder");
+    SettingsImportReport rep;
+    rep.id = id;
+    for (const EF& ef : Expand(m)) {
+        if (ef.role != Role::Config) continue;
+        const fs::path src = from / P(ef.dst);
+        CheckNoLinks(from, ef.dst);
+        if (!IsFile(src)) { rep.notes.push_back(ef.dst + " is not in " + U(from)); continue; }
+        const fs::path stored = d.store / P(id) / P(ef.dst);
+        if (IsFile(stored)) {   // never lose an older saved copy
+            CopyAtomic(stored, d.imports / P(id) / "previous-settings" / P(ef.dst));
+            ++rep.kept_previous;
+        }
+        CopyAtomic(src, stored);
+        ++rep.captured;
+    }
+    if (svc_.log) svc_.log->Line("import-settings " + id + " in " + U(game) + " from " + U(from) + ": " + std::to_string(rep.captured) + " settings file(s)");
     return rep;
 }
 

@@ -71,7 +71,7 @@ struct Args {
 };
 
 Args ParseArgs(const std::vector<std::string>& a) {
-    static const std::set<std::string> kValue = {"--home", "--game", "--option", "--runtime", "--runtime-file", "--store"};
+    static const std::set<std::string> kValue = {"--home", "--game", "--option", "--runtime", "--runtime-file", "--store", "--from"};
     Args r;
     for (size_t i = 0; i < a.size(); ++i) {
         if (StartsWith(a[i], "--")) {
@@ -92,7 +92,7 @@ Args ParseArgs(const std::vector<std::string>& a) {
 const char* kUsage =
     "usage: vrmodlauncher [--home DIR] [--game DIR] [--json] <command>\n"
     "  list | status | register <manifest> | unregister <id> | activate <id> | deactivate <id|group> | verify | recover |\n"
-    "  import <id> | requirements <id> | launch <id> | deps verify <zip> | version\n";
+    "  import <id> | import-settings <id> --from DIR | requirements <id> | launch <id> | deps verify <zip> | version\n";
 
 fs::path NeedGame(const Args& a, const CliEnv& env) {
     std::string g = a.get("--game");
@@ -265,6 +265,15 @@ int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
             recoverFirst();
             ImportReport r = eng.Import(game, a.pos[1], a.flag("--force"));
             out << "imported " << r.id << ": " << r.adopted << " file(s) taken over, " << r.captured << " settings file(s) captured, " << r.backups << " backup(s) copied\n";
+            for (const std::string& n : r.notes) out << "  note: " << n << "\n";
+            return 0;
+        }
+
+        if (cmd == "import-settings") {
+            if (a.pos.size() < 2 || a.get("--from").empty()) Throw("E_USAGE", "import-settings <id> --from DIR");
+            recoverFirst();
+            SettingsImportReport r = eng.ImportSettings(game, a.pos[1], P(a.get("--from")));
+            out << "imported settings of " << r.id << ": " << r.captured << " file(s) saved for this game" << (r.kept_previous ? " (" + std::to_string(r.kept_previous) + " earlier saved copy kept in imports/)" : std::string()) << "\n";
             for (const std::string& n : r.notes) out << "  note: " << n << "\n";
             return 0;
         }

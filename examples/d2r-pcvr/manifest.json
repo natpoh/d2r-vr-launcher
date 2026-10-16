@@ -21,7 +21,7 @@
     "plugin_file": "d2rl-vrcam.dll",
     "product_name": "D2R PCVR",
     "dll_sha256": [],
-    "markers": ["Frame effects: preloaded shader compiler"],
+    "markers": ["d2r_vr_icons"],
     "about_file": "{game}/d2rloader/plugins/d2r_pcvr_about.json",
     "log": "{game}/d2rloader/logs/d2r-vr-vrcam.log"
   },
@@ -105,7 +105,7 @@
   "uninstall": { "exe": "{localappdata}/Programs/D2R PCVR/unins000.exe", "args": ["/SILENT"] },
   "x-unverified": [
     "/identity/dll_sha256 (no build was measured)",
-    "/identity/markers (the string is in his source, not checked in a binary)",
+    "/identity/markers (d2r_vr_icons, UTF-16, is in the 0.3.15 DLL and not in D2R VR's: checked on the installed build; the 0.3.13 string \"Frame effects: preloaded shader compiler\" is not in 0.3.15)",
     "/identity/about_file (a proposal: his plugin does not write one yet)",
     "/identity/plugin_id (today the same as D2R VR's; a unique id is proposed)",
     "/files/*/src (the package layout under payload/ is a proposal: today install.py writes the files itself)",

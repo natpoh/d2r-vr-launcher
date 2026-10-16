@@ -214,6 +214,10 @@ test compares every file's SHA-256 — and the switch can be tried again. Recove
   *copied* (originals stay) into `imports/<id>/`: files by glob (D2R VR's `d2r_vr.ini.before_*`, `d2rl-vrcam.dll.before_*`, `…/*.before_*` copies) and the folders
   a record file lists (d2r-pcvr's `d2rloader/pcvr-install.json`, key `snapshots`: his `setup-backups\game\<timestamp>` folders). A listed backup that is gone is reported, not an error.
   `verify` also warns when a registered mod's plugin sits in the game folder but the mod is not active (`UNMANAGED_MOD_FILES`): that is the old-installer or mixed-install case.
+* **Import of settings only** (`import-settings <id> --from DIR`): the `config` files of `<id>` found under `DIR` (a folder laid out like the game folder - a backup the player made, or a snapshot an
+  installer left) become the settings saved for this game and come back at the next `activate <id>`. Nothing in the game folder is touched; an earlier saved copy is kept in `imports/<id>/previous-settings/`;
+  refused (`E_IN_USE`, exit 12) while `<id>` is active (its live files are its settings). This is how the player's own D2R VR settings survive a d2r-pcvr install made over them.
+
 
 ---
 
@@ -224,7 +228,7 @@ vrmodlauncher [--home DIR] [--game DIR] [--json] <command>
   register <manifest>        validate the manifest and the package in <home>/mods/<id>/, record it            (installer: last step)
   unregister <id> [--force] [--purge] [--purge-settings]                                                     (uninstaller: first step)
   status                     launcher, game (store, build, D2RLoader), active mods, pending work             (--json for scripts)
-  list | activate <id> [--dry-run] | deactivate <id|group> | verify | recover | import <id> | requirements <id>
+  list | activate <id> [--dry-run] | deactivate <id|group> | verify | recover | import <id> | import-settings <id> --from DIR | requirements <id>
   launch <id> [--option ID] [--runtime steamvr|vdxr|system|file] [--runtime-file F] [--store steam|battlenet] [--dry-run]
   deps verify <zip>          is this file the reviewed D2RLoader archive
 ```
@@ -325,7 +329,7 @@ what a player's support log would show.
 | `engine` | plan, journal, apply, verify, recover, import, remove, status |
 | `deps`, `launch`, `game`, `process`, `cli` | the D2RLoader pin and cache, launch plans, store/build detection, the process probe, the command line |
 
-Tests (`tests/`, 9 ctest targets, 92 cases; Release and Debug both green): `json_test` 9 · `sha256_test` 6 · `manifest_test` 11 · `deps_test` 8 · `launch_test` 10 · `cli_test` 8 · `examples_test` 3 ·
+Tests (`tests/`, 9 ctest targets, 93 cases; Release and Debug both green): `json_test` 9 · `sha256_test` 6 · `manifest_test` 11 · `deps_test` 8 · `launch_test` 10 · `cli_test` 8 · `examples_test` 3 ·
 **`engine_test` 37**, of which: a crash at **41 points** (before and after each of the 13 operations, between each of the 13 copies' temp file and rename, before the commit, after it) —
 each followed by "the next start refuses and `verify` says so", "`recover` refuses while the game runs", "`recover` puts the game folder and the launcher folder back **byte for byte**", "the switch then works and
 the tuned settings were never lost"; an error (not a crash) in the middle undoes itself; a damaged payload is caught by the hash and undone; refusal while `D2R.exe`, `D2RLoader.exe`, a differently-cased name or a
@@ -333,6 +337,13 @@ process only the mod names runs (the game folder is unchanged); two mods with co
 update of the active and of the inactive mod; uninstall of the inactive and of the active mod (both orders, the other keeps its saved settings); two games with separate state; `verify` after tampering; import of a legacy
 installation with `.before_*` copies and of a record-listed backup chain; hooks in order and their failure; preconditions; retention of backups.
 `schema_parity` (Python): schema ⇄ C++ validator on 36 manifests.
+
+**End to end on the real installs** (`tools/e2e_switch.py`, 59 checks, 2026-10-15): on a copy of the mod files of a real game folder (D2R VR's installer, then d2r-pcvr 0.3.15 installed over it -
+the real state of the author's machine) it makes d2r-pcvr's package from the copy and his own record (`tools/make_pcvr_package.py`: `pcvr-install.json` → the snapshot's `manifest.json` lists the 741 files his
+installer put in), registers it and D2R VR's package (made by D2R VR's `build_installer.ps1`), refuses `import d2r-vr`, imports d2r-pcvr, saves D2R VR's own settings from a backup (`import-settings`),
+switches to D2R VR and back, launches each with a stand-in `D2RLoader.exe` (D2R VR through `D2R_VR_Settings.exe --start`, d2r-pcvr with his Steam environment) and checks that the copy is byte for byte the starting
+point after the way back, that every byte of it was always in the game copy or the launcher's folder, that each mod's settings stayed its own, and that a running `D2R.exe` stops the switch. The real folder is only read.
+
 
 ---
 

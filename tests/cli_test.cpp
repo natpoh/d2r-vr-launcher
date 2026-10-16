@@ -212,6 +212,26 @@ TEST(import_through_the_cli) {
     CHECK_EQ(r.code, 0);
 }
 
+TEST(import_settings_from_a_backup_folder) {
+    World w;
+    w.Register();
+    const fs::path backup = w.sb.root / "my_backup";
+    tt::Write(backup / "d2rloader/plugins/d2r_vr.ini", "[camera]\nmode=from-my-backup\n");
+    CHECK_EQ(w.Cli({"import-settings", "alpha"}).code, 2);                       // --from is needed
+    CHECK_EQ(w.Cli({"import-settings", "alpha", "--from", U(w.sb.root / "nope")}).code, 3);
+    Run r = w.Cli({"import-settings", "alpha", "--from", U(backup)});
+    CHECK_EQ(r.code, 0);
+    CHECK(Has(r.out, "imported settings of alpha: 1 file(s)"));
+    CHECK(!fs::exists(w.sb.game / "d2rloader/plugins/d2r_vr.ini"));              // the game folder is not touched
+    CHECK_EQ(w.Cli({"activate", "alpha"}).code, 0);
+    CHECK_EQ(tt::Read(w.sb.game / "d2rloader/plugins/d2r_vr.ini"), "[camera]\nmode=from-my-backup\n");   // they come back with the mod
+    CHECK_EQ(w.Cli({"import-settings", "alpha", "--from", U(backup)}).code, 12);  // active: its live files are the settings
+    CHECK_EQ(w.Cli({"activate", "beta"}).code, 0);
+    r = w.Cli({"import-settings", "alpha", "--from", U(backup)});               // saved again: the earlier copy is kept
+    CHECK_EQ(r.code, 0);
+    CHECK(Has(r.out, "earlier saved copy kept"));
+}
+
 TEST(version_and_help) {
     World w;
     Run r = w.Cli({"version"}, false);

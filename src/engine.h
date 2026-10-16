@@ -124,6 +124,13 @@ struct ImportReport {
     std::vector<std::string> notes;
 };
 
+// `import-settings`: a mod's settings taken from a folder laid out like the game folder (a backup the player made), into the per-game store.
+struct SettingsImportReport {
+    std::string id;
+    int captured = 0, kept_previous = 0;
+    std::vector<std::string> notes;
+};
+
 struct RemoveOptions {
     bool force = false;              // deactivate it in every game first (the games must be closed)
     bool purge_package = false;      // delete <home>/mods/<id>
@@ -160,6 +167,9 @@ public:
     VerifyReport Verify(const fs::path& game);
     RecoverReport Recover(const fs::path& game);
     ImportReport Import(const fs::path& game, const std::string& id, bool force);
+    // The `config` files of mod <id> found under <from> (same relative paths as in the game folder) become the settings saved for this game; they come
+    // back at the next `activate <id>`. Nothing in the game folder is touched. Refused while <id> is active there (its live files are the settings).
+    SettingsImportReport ImportSettings(const fs::path& game, const std::string& id, const fs::path& from);
     // Unregisters a mod. Active somewhere: E_IN_USE unless opts.force (then it is deactivated there first).
     void RemoveMod(const std::string& id, const RemoveOptions& opts);
 

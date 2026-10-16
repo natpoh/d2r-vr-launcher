@@ -21,7 +21,7 @@ python tools/demo.py build/Release/vrmodlauncher.exe <work folder>    # a walk t
 | `schema/` | `vrmod-manifest.1.schema.json` — the manifest contract |
 | `examples/` | the manifests of D2R VR 0.165.0 and D2R PCVR 0.3.13 |
 | `tests/` | unit tests on a fake game folder, the manifest fixtures (`ok_*`, `bad_*`, `semantic_*`) |
-| `tools/` | `check_schema.py` (schema ⇄ validator parity), `demo.py` |
+| `tools/` | `check_schema.py` (schema ⇄ validator parity), `demo.py`, `real_data_test.py`, `make_pcvr_package.py` (d2r-pcvr's package from an installed copy), `e2e_switch.py` (D2R VR ⇄ d2r-pcvr on a copy of a real install, launch included) |
 
 Commands: `list | status | register <manifest> | unregister <id> | activate <id> | deactivate <id|group> | verify | recover | import <id> |
 requirements <id> | launch <id> | deps verify <zip>` — see `vrmodlauncher` without arguments and SPEC.md §6.
