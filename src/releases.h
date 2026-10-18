@@ -24,6 +24,7 @@ namespace vrml {
 struct Release {
     std::string id;             // "d2r-vr" (Authentic) | "d2r-pcvr" (Unleashed)
     std::string version;        // normalised: "0.168.0", "0.3.19"
+    std::string announced;      // the newest version the source NAMED, even when it is not newer than the installed one (0.169.0 while 0.170.0 is installed); "" = it named none ("0.0.0")
     std::string tag;            // GitHub's tag ("v0.3.19-windows-preview"); "" for Authentic
     std::string url;            // the installer
     std::string asset_name;     // its file name ("D2R_VR_Setup_v0.168.0.exe")
@@ -67,7 +68,8 @@ bool ReleaseUrlOk(const Release& r, const std::string& testHttpHost, std::string
 // The hosts a download of this release may use, redirects included.
 std::vector<std::string> DownloadHostsFor(const std::string& id);
 
-// What is installed: the `version` of mods\<folder>\vrmod-manifest.json (not the built-in profile's), "" when not installed or unknown.
+// What is installed (ModEntry::found_version, normalised): the `version` of mods\<folder>\vrmod-manifest.json, else the `version` text of a manifest that does not
+// validate, else the version resource of the mod's own plugin; never the built-in profile's. "" when not installed or unknown.
 std::string InstalledVersion(const fs::path& game, const std::string& id);
 
 struct UpdateInfo {

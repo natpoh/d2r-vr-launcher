@@ -160,8 +160,10 @@ Release ParseAuthenticAnswer(const std::string& text, const std::string& current
     if (nv == "0.0.0" || !IsNewer(nv, current)) {
         r.up_to_date = true;
         r.version = r.current;
+        if (nv != "0.0.0") r.announced = nv;            // the site's newest is older than (or the same as) what is installed: remembered, so the window can say "you have a newer version"
         return r;
     }
+    r.announced = nv;
     r.version = nv;
     r.url = j.get_string("download_url");
     std::string why;
@@ -221,6 +223,7 @@ Release ParseUnleashedAnswer(const std::string& text, const std::string& current
     r.source = "github.com/bearstonem/d2r-pcvr";
     r.current = NormalizeVersion(current);
     r.version = best->ver;
+    r.announced = best->ver;
     r.tag = best->rel->get_string("tag_name");
     r.prerelease = best->rel->get_bool("prerelease");
     r.published = best->published;
@@ -291,7 +294,7 @@ Release LatestUnleashed(HttpClient& http, const std::string& current, const Rele
 
 std::string InstalledVersion(const fs::path& game, const std::string& id) {
     for (const ModEntry& e : DiscoverMods(game))
-        if (e.id == id && e.installed && e.source == "manifest") return NormalizeVersion(e.version);
+        if (e.id == id && e.installed) return NormalizeVersion(e.found_version);
     return "";
 }
 
@@ -303,7 +306,7 @@ UpdateInfo CheckUpdate(HttpClient& http, const fs::path& game, const std::string
         for (const ModEntry& e : DiscoverMods(game))
             if (e.id == id) {
                 u.installed = e.installed;
-                u.installed_version = e.installed && e.source == "manifest" ? NormalizeVersion(e.version) : "";
+                u.installed_version = e.installed ? NormalizeVersion(e.found_version) : "";
             }
     }
     try {

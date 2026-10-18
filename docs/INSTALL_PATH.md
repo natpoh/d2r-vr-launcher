@@ -17,7 +17,7 @@ Everything here is in the library (`src/net`, `zip`, `install`, `releases`, `set
 | What runs | nothing: the launcher unpacks the ZIP itself | the Setup, started **elevated** (UAC) with `/DIR="<game folder>"`; it shows its own wizard | the Setup, **per user** (no UAC), no arguments; it shows its own wizard (Steam / headset choices: a silent run would need a choices file, so it runs visibly) |
 | Silent / admin | silent; needs administrator rights **only** when the game folder is protected (`C:\Program Files...`): then `E_IO` "administrator rights are needed for this folder" and the folder is untouched | not silent; needs admin (the prompt is Windows', a declined prompt is `E_UAC_DECLINED`, 31) | not silent; no admin |
 | Where it ends up | `D2RLoader.exe`, `D2RCore.dll`, `d2rloader.mpq` in the game folder; empty `mods\`, `d2rloader\{config,data,plugins,logs,crashes}`; `d2rloader\config\d2rloader.toml` only when absent | `<game>\mods\D2R-VR` (by the Setup) | `<game>\mods\D2R-PCVR` (by the Setup) |
-| After | `FilesMatch` on the three files | `DiscoverMods` again: is the mod in THIS game folder, which version (from its own `vrmod-manifest.json`) | the same |
+| After | `FilesMatch` on the three files | `DiscoverMods` again: is the mod in THIS game folder, which version (its manifest, else the version resource of its plugin) | the same |
 | Cancelled / failed | `E_CANCELLED` (30) for a cancelled download; any failed step leaves the folder as it was | Setup exit codes reported as they are (Inno: 2 and 5 = cancelled by the player -> `E_CANCELLED`, others `E_SETUP` 28); "finished but not installed here" is `E_MOD_NOT_INSTALLED` (11) | the same |
 | What the launcher does itself | download, verify, unpack, back up, move in, roll back | download, verify, run the Setup, check the result | the same |
 
@@ -70,30 +70,53 @@ vrmodlauncher install loader|authentic|unleashed --game DIR [--dry-run] [--no-ru
 ## The window: the install view and the update badges (launcher 0.3.0)
 
 `D2RVRLauncher.exe` has a button **Install / update mods...**; it opens the **install view**, a window over the main one (`--install-view` opens it right after start: the finish page of the
-launcher's own Setup does that, "Choose the mods to install"). Pictures: `docs/screens/install_view_100pct.png`, `install_view_result_100pct.png`, `launcher_update_badges_100pct.png`.
+launcher's own Setup does that, "Choose the mods to install"). Pictures: `docs/screens/install_view_100pct.png` (a fresh game: Install buttons, everything ticked), `install_view_installed_current_100pct.png` (both mods installed and current: nothing ticked, Install selected off, Uninstall
+buttons, greyed Up to date), `install_view_update_available_100pct.png` (Update buttons, ticked cards, the amber badge), `install_view_plugin_version_100pct.png` (a version read from a plugin, a version that could not be read),
+`install_view_result_100pct.png`, `launcher_update_badges_100pct.png`.
 
-- **Three rows**: D2RLoader, D2R VR Authentic, D2R VR Unleashed. Each has a check box, *Installed:* (D2RLoader: "reviewed 1.3.1-beta files" / "missing" / "files differ"; a mod: its version,
-  "not installed"), *Newest:* ("checking..." while the two servers are asked on a worker thread, a version, "you have the newest version", or the problem in words), where it comes from and how it is
+- **Three rows**: D2RLoader, D2R VR Authentic, D2R VR Unleashed. Each has a check box, *Installed:* (D2RLoader: "reviewed 1.3.1-beta files" / "missing" / "files differ"; a mod: its version - with "(from its plugin)" or
+  "(manifest not valid)" when it was not read from a valid manifest -, "installed (version unknown)", "not installed"), *Newest:* ("checking..." while the two servers are asked on a worker thread, a version, "you have the
+  newest version", "0.169.0 - you have a newer version" when the site's newest is older than what is installed, or the problem in words), where it comes from and how it is
   proven ("d2rloader.net, hash pinned in the launcher" / "bodywalkvr.com - no checksum published yet" or "- checksum published" / "GitHub release of bearstonem/d2r-pcvr, SHA-256 from GitHub"), how it is run
-  (the Setups open their own windows; Authentic's asks Windows for administrator rights), and a mark on the right: the amber "Update available: 0.167.0 -> 0.168.0", then during and after a run "Waiting",
-  "Downloading 12.3 MB of 47.0 MB", "Setup window open", "Installed 0.168.0", "Already installed", "Failed", "Cancelled", "Not run".
-- **What is ticked**: a mod that is missing or outdated; D2RLoader when it is missing (or its files differ) and a mod is ticked. Ticking a mod while D2RLoader is missing ticks D2RLoader too and the row says
-  why; the player may untick it, the row then warns. A current mod can be ticked: it is installed again (a repair). The card's *Install* / *Update* button opens the view with exactly that mod ticked.
-  What the boxes do is `src/gui_install_model.*` (unit-tested without a window), not the window.
+  (the Setups open their own windows; Authentic's asks Windows for administrator rights), and a mark on the right: the amber "Update available: 0.167.0 -> 0.168.0" (only for a proven newer release), then during and after a
+  run "Waiting", "Downloading 12.3 MB of 47.0 MB", "Setup window open", "Installed 0.168.0", "Already installed", "Failed", "Cancelled", "Not run".
+- **Which version is installed** (`ModEntry::found_version`, in this order; the card, the badge, the row, `vrmodlauncher mods` and the update question all use it): (1) the `version` of a vrmod-manifest.json that validates;
+  (2) the `version` text of a manifest that does NOT validate (a field of another schema), read from the raw JSON - only when it names this mod - and the "is not valid" note stays; (3) the ProductVersion in the version
+  resource of the DLL in `<mod>\d2rloader\plugins` whose Comments say `mod-id=<id>` (`d2r-vr` / `d2r-pcvr`; any file name: Bear's is `d2rl-pcvr.dll` with ProductVersion "0.3.19" and Comments "mod-id=d2r-pcvr; plugin-id=d2r-pcvr-vrcam; ...",
+  earlier builds `d2rl-vrcam.dll`); (4) otherwise unknown. The built-in profile's version is never used (it says which release the launcher shipped with). **The order of versions**: numbers compared part by part
+  (0.3.9 < 0.3.19), missing parts are 0 (0.169 = 0.169.0), a suffix after the numbers (`-launcher-test`, `-modlayout-candidate`) is the same base version.
+- **Never a downgrade**: when the newest release is older than or equal to what is installed the row says it is up to date ("you have the newest version" / "<newest> - you have a newer version"), has no badge, is not ticked,
+  its box is off and its button is a greyed *Up to date*. (Authentic's server is asked "anything newer than <installed>?"; a site that answers with an older number of its own is handled the same.)
+- **What is ticked**: nothing unless it is a real install or update. A missing mod is ticked (install); an installed mod with a **proven** newer release is ticked (update); an installed mod whose version could not be read is
+  **not** ticked - its button says *Update* and its note says the version could not be read and that Update runs the newest Setup over it; a current (or newer-than-the-newest) mod is not ticked, its box is off and it cannot be
+  ticked - there is no "repair" tick any more (to put a mod in again, uninstall it, then install it). D2RLoader: ticked when it is missing or its files differ **and** a mod is ticked; reviewed files = up to date, box off.
+  Ticking a mod while D2RLoader is missing ticks D2RLoader too and the row says why; the player may untick it, the row then warns. What the boxes do is `src/gui_install_model.*` (unit-tested without a window), not the window.
+- **Each row's own buttons**, on the right of its card beside its Installed / Newest lines. The action button: *Install* (not installed), *Update* (newer proven, or the version unknown), a greyed *Up to date* (current);
+  D2RLoader: *Install* (missing), *Repair* (its files differ: the reviewed ones are put back, what it replaces is backed up as always), a greyed *Up to date* (reviewed files). Pressing it ticks **only that piece** (and D2RLoader
+  when it is missing and the mod needs it, as the card's button does) and starts the install at once, through the same path as *Install selected* - the same refusals (no game folder, the game runs, ...) and the same question
+  about a download without a published checksum. The buttons are off while the answers are still coming, while an install runs and while the game runs (the notice says why). The card's *Install* / *Update* button opens the view
+  with exactly that mod ticked.
+- **Uninstall**, a second button on the row of an **installed** D2R VR Authentic or Unleashed (not on a missing mod, never on D2RLoader), does what the card's button in the main window does (`Model::UninstallFor` /
+  `UninstallRefusal`): refused while D2R.exe or D2RLoader.exe runs ("Save & Exit in the game first" - the launcher never closes the game); a question that names the mod and its uninstaller (default No); then the mod's **own**
+  uninstaller (Authentic's `unins000.exe` in the game folder, Unleashed's `%LOCALAPPDATA%\Programs\D2R PCVR\unins000.exe` without `/SILENT`, so its own question shows); with no uninstaller on the computer (a ZIP install) a message that
+  says how to remove the mod by hand. The launcher never deletes a mod folder. While the uninstaller runs the row buttons and *Install selected* are off ("Waiting for the uninstaller of ... to finish"); when it ends the view
+  reads the game folder again and asks the servers again, so the row changes (Install instead of Uninstall, or "still installed" when the player said No in its own question).
+  **D2RLoader has no Uninstall**: it is shared by both mods and by any other D2RLoader mod, `InstallD2RLoader` keeps copies only of the files it *replaced* (for its rollback and for the player; a first install has none) and has no restore step.
 - **Install selected** runs on a worker thread (`install_run.h`), D2RLoader first, then Authentic, then Unleashed, each: look up the release (the one the player saw is used), download, check the hash, install (D2RLoader)
   or run the Setup with its wizard (Authentic elevated with `/DIR="<game folder>"`, Unleashed per user). One piece failing does not stop the next; a cancel, a running game or a folder that is not a game does.
   The bar covers the whole run, the line under it says "Step 2 of 3 - D2R VR Authentic: downloading 12.3 MB of 47.0 MB (26 %)", the log keeps everything.
 - **Cancel** (the Close button while it runs): the download in progress is stopped and deleted, the rest is not started. A Setup wizard that is open is **not** closed: the view says "finish or close its wizard".
   The window itself does not close while an install runs.
-- **Refused, with the reason beside the button**: no valid game folder ("Pick the folder Diablo II: Resurrected is installed in first"), the game is running, nothing ticked, a ticked mod whose newest release is not known yet
-  or could not be found out ("press Check again").
+- **Refused, with the reason beside the button**: no valid game folder ("Pick the folder Diablo II: Resurrected is installed in first"), the game is running, nothing ticked ("Tick what you want to install."; "Nothing to install: everything is up to date." when everything is current;
+  "Nothing to install: everything you ticked is up to date." when a card's Update turned out to be for a current mod), a ticked mod whose newest release is not known yet
+  or could not be found out ("press Check again"). *Install selected* is on only when a ticked row is a real install, update or loader fix.
 - **A release without a published checksum** (today D2R VR Authentic): before anything is downloaded a question says what cannot be verified (the file cannot be proven to be the announced one), what is still checked
   (https, only bodywalkvr.com, a size cap, the SHA-256 written to the log before the Setup starts) and why it is probably fine (the server will publish a checksum later and the launcher then enforces it with no update).
   The default button is **No**; Yes passes `accept_unverified`. Nothing is accepted silently.
 - **After the run** the view looks at the game folder again (`DiscoverMods`, D2RLoader's files), the main window refreshes, and the summary is in words per piece: "you declined the administrator prompt" (`E_UAC_DECLINED`),
   "the Setup failed: ... (exit code 4)" (`E_SETUP`), "a checksum did not match" (`E_HASH`), "administrator rights are needed for this game folder: ... Run as administrator" (`E_IO`), "cancelled" ...
 - **Update badges**: once per launch, in the background, the window asks the two servers (one request each; the setting *Check for updates when the launcher starts*, on by default, is remembered in `settings.json` as
-  `check_updates_on_start`; `--no-update-check` switches it off for one run). A card with a newer release shows the amber "Update available: 0.167.0 -> 0.168.0" and its button says **Update**; a known mod that is not installed says
+  `check_updates_on_start`; `--no-update-check` switches it off for one run). A card with a **proven** newer release shows the amber "Update available: 0.167.0 -> 0.168.0" and its button says **Update** (never for an older or the same release; a mod whose version is unknown is still offered the newest, without a "from"); a known mod that is not installed says
   **Install**; both open the view. The old "Get..." link is now a small "Website" link. A server that cannot be reached shows nothing (the reason goes to `launcher.log`).
 - **First run**: when the game folder was found (not given with `--game`) and neither VR mod is installed, the window offers the view once (`install_view_offered` in `settings.json`; the answer does not matter).
 - **Command line**: `D2RVRLauncher.exe --install-view [--install-tick loader,authentic,unleashed]`. Test aids, honoured **only together with `VRML_ALLOW_HTTP_HOST`** (a loopback test server; exit 2 otherwise): `--install-run LIST --game DIR`
@@ -132,9 +155,11 @@ published" and ask before setting `accept_unverified`; call `InstallMod` from a 
 - **Cancel while a server is silent.** A cancel is noticed at the next piece of data; a server that stops sending is given up after 30 s (the receive timeout).
 - **No resume** of a partial download; no proxy credentials (the system proxy is used as it is); GitHub allows 60 anonymous questions an hour (a `releases` is 2 requests).
 - **The elevated start of a Setup (`runas`) is not run by any automated test** (it would raise a real UAC prompt); the tests run the same code path non-elevated with a stand-in Setup.
-- **Uninstall** is the mod's own (manifest `uninstall`), a button on each installed card (launcher 0.3.1; the bottom-row button of 0.3.0 is gone); the launcher installs nothing it cannot take out again except D2RLoader, whose files stay.
-- **A mod whose installed version is unknown** (a mod folder without its own `vrmod-manifest.json`: Bear's installer writes none yet, docs/INSTALLER_CONTRACT.md) counts as outdated: its card says "Update available: 0.3.19"
-  (no "from" version) and the view ticks it, even right after it was installed. It goes away when his installer writes the manifest.
+- **Uninstall** is the mod's own (manifest `uninstall`), a button on each installed card and on each installed row of the install view (launcher 0.3.1; the bottom-row button of 0.3.0 is gone); the launcher installs nothing it
+  cannot take out again except D2RLoader, whose files stay (no Uninstall for it: shared by every mod; the backups of what an install replaced are for a rollback, not a restore).
+- **A mod whose installed version cannot be found out** (no valid manifest, a manifest without a usable version, and no plugin that says `mod-id=<id>` with a version: an old build) is "installed (version unknown)": its card says
+  "Update available: 0.3.19" (no "from" version) and its row says Update, but the view does **not** tick it - nothing is proven. Bear's Setup writes no manifest (docs/INSTALLER_CONTRACT.md); his plugin's version resource gives the version (0.3.1+).
+  An earlier launcher build with the same number 0.3.0 did not know that and offered a downgrade; Setup never replaces a launcher with the same version number (docs/INSTALLER_CONTRACT.md), which is why this is 0.3.1.
 - **In the window**: a Setup wizard that is open cannot be closed by the view's Cancel (it is another program: the player finishes or closes it); the elevated start of a Setup (the real UAC prompt) and the Setups' own wizards are
   not run by any automated test (the stand-in Setup stands for them); the answer to the "no published checksum" question is not remembered (it is asked at every install); the update check is once per start, not periodic;
   Check again asks both servers again but there is no "ignore this update".

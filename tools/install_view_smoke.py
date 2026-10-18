@@ -2,7 +2,7 @@
 r"""The install view and the update badges of D2RVRLauncher.exe, for real, against a LOCAL web server and fake game folders: no internet, no real game, no
 real installer, nothing in %LOCALAPPDATA%\VRModLauncher (every run gets --home <scratch>).
 
-    install_view_smoke.py --exe D2RVRLauncher.exe --fake-setup fake_setup.exe --work <empty work folder> [--shots <folder for the screenshots>]
+    install_view_smoke.py --exe D2RVRLauncher.exe --fake-setup fake_setup.exe --work <empty work folder> [--fake-plugins <folder of fake_plugin_*.dll>] [--shots <folder for the screenshots>]
 
 One Python http.server on 127.0.0.1 plays all the sources (a synthetic D2RLoader ZIP passed to the launcher as a test pin, our version API with and without a
 sha256, a GitHub-style releases list, installers that are copies of fake_setup.exe, a slow one for the cancel tests). The launcher is told about the server by the
@@ -17,7 +17,11 @@ What is checked
      its default button, No), a real install, a cancel in the middle of a download, the refusal while the game runs and without a game folder
   3. the main window: the update badge and the Install / Update button of a card, the quiet check (off by --no-update-check and by the setting, silent when
      the server is down), the "Check for updates when the launcher starts" box, the offer of the install view on a first run
-  4. screenshots of the view in its states (checking, ready, after an install with a failure) at 100 and 150 % and the main window with badges
+  2b. the rows of the view: each row's own buttons (Install / Update / Repair / a greyed Up to date, and Uninstall on an installed mod), nothing ticked unless it is a
+     real install or update, a downgrade never offered (Authentic 0.170.0 installed while the site says 0.169), an installed version found in a manifest that does not
+     validate or in the plugin's version resource, a row's button running only its piece, the row's Uninstall (the question, No runs nothing, the mod's own
+     uninstaller, refused while the game runs, the words when there is no uninstaller) and the row changing when the uninstaller has ended
+  4. screenshots of the view in its states (checking, ready, after an install with a failure, up to date, an update, the version read from a plugin) at 100 and 150 % and the main window with badges
 """
 import argparse
 import hashlib
@@ -40,10 +44,12 @@ ap.add_argument("--exe", required=True)
 ap.add_argument("--fake-setup", required=True)
 ap.add_argument("--work", required=True)
 ap.add_argument("--shots")
+ap.add_argument("--fake-plugins")           # the folder of fake_plugin_*.dll (a DLL with nothing but a version resource): without it the plugin-version checks are skipped
 a = ap.parse_args()
 EXE = str(Path(a.exe).resolve())
 FAKE_SETUP = Path(a.fake_setup).resolve()
 WORK = Path(a.work).resolve()
+FAKE_PLUGINS = Path(a.fake_plugins).resolve() if a.fake_plugins else None
 if len(str(WORK)) > 80:   # the loader install writes deep paths inside the game folder: a deep build folder would pass MAX_PATH
     import tempfile
     WORK = Path(tempfile.gettempdir()).resolve() / "vrml_install_view_smoke"
@@ -77,6 +83,7 @@ IDYES, IDNO = 6, 7
 
 # the control ids of gui_install_view.cpp and gui_window.cpp
 V_ROWS, V_NOTICE, V_STEP, V_PROGRESS, V_LOG, V_CHECK, V_INSTALL, V_CLOSE, V_BOX = 210, 211, 212, 213, 214, 215, 216, 2, 1100       # V_BOX + 0 loader, 1 Authentic, 2 Unleashed
+V_ACT, V_UN = 1200, 1300          # + 0 / 1 / 2: each row's own Install / Update / Repair / Up to date button and its Uninstall button
 M_LIST, M_INSTALL_VIEW, M_UPDATE_CHECK, M_MESSAGE, M_LOG = 105, 119, 120, 117, 118
 CARD_RADIO, CARD_LINK, CARD_INSTALL = 1000, 2000, 3000
 VIEW_CLASS, MAIN_CLASS = "D2RVRLauncherInstallView", "D2RVRLauncherWindow"
@@ -111,7 +118,7 @@ HITS = []
 STATIC = {}
 ROUTES = {}
 EVENTS = {}
-STATE = {"api_delay": 0.0}
+STATE = {"api_delay": 0.0, "auth_naive": False}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -235,7 +242,7 @@ def set_auth(**kw):
 def api_version(h):
     time.sleep(STATE["api_delay"])
     v = h.path.split("v=")[-1] if "v=" in h.path else ""
-    if v == AUTH["newest"]:
+    if v == AUTH["newest"] and not STATE["auth_naive"]:
         h.reply(200, json.dumps({"version": "0.0.0", "download_url": "", "changelog": ""}).encode(), ctype="application/json")
     else:
         h.reply(200, json.dumps(AUTH["answer"]).encode(), ctype="application/json")
@@ -282,12 +289,14 @@ def write_pin(zip_bytes, name="pin.json"):
 
 PIN = None          # set once WORK exists
 SETUP_LOG = None
+UNINSTALL_LOG = None
 
 
 def reset_server():
     set_auth()
     set_gh()
     STATE["api_delay"] = 0.0
+    STATE["auth_naive"] = False
 
 
 def set_created(path, days_ago):
@@ -309,8 +318,20 @@ def set_created(path, days_ago):
     k32.CloseHandle(h)
 
 
-def make_game(name, loader=False, authentic=None, unleashed=None):
-    """A fake Diablo II: Resurrected folder, in a folder with spaces like the real one. `authentic` / `unleashed`: the version of the mod installed in it."""
+def manifest_invalid_for(mod_id, version):
+    """The mod's manifest with a field this schema does not know (the report from the field: an earlier build rejected a key a later one added): it does not validate, but it names its version."""
+    base = json.loads(manifest_for(mod_id, version).read_text(encoding="utf-8"))
+    base["a_field_of_another_schema"] = True
+    p = WORK / "manifests" / f"{mod_id}_{version}_invalid.json"
+    p.write_text(json.dumps(base), encoding="utf-8")
+    return p
+
+
+def make_game(name, loader=False, authentic=None, unleashed=None, authentic_invalid=None, unleashed_plugin=None, authentic_plugin=None, bare=()):
+    """A fake Diablo II: Resurrected folder, in a folder with spaces like the real one. `authentic` / `unleashed`: the version of the mod installed in it, as its own
+    vrmod-manifest.json says. `authentic_invalid`: that version, in a manifest that does not validate. `unleashed_plugin` / `authentic_plugin`: the mod is installed with NO manifest
+    (like Bear's Setup) and the version is only in the version resource of this stand-in plugin ("fake_plugin_pcvr" = 0.3.19, "fake_plugin_vr" = 0.170.0). `bare`: mod ids that are
+    installed with nothing at all that says which version (modinfo.json only)."""
     game = WORK / name / "Diablo II Resurrected"
     exe = b"MZ-fake-D2R.exe " + "3.3.93787".encode("utf-16-le")
     for rel, data in {"D2R.exe": exe, "Data/.build.config": b"x", "Saved/Settings.json": b"{}"}.items():
@@ -320,21 +341,39 @@ def make_game(name, loader=False, authentic=None, unleashed=None):
         for n, d in REAL.items():
             (game / n).write_bytes(d)
         (game / "mods").mkdir(exist_ok=True)
-    for ver, mod_id, folder in ((authentic, "d2r-vr", "D2R-VR"), (unleashed, "d2r-pcvr", "D2R-PCVR")):
-        if ver:
+    plugin_dir = {"d2r-vr": "d2rl-vrcam.dll", "d2r-pcvr": "d2rl-pcvr.dll"}
+    for mod_id, folder, ver, invalid, plugin in (("d2r-vr", "D2R-VR", authentic, authentic_invalid, authentic_plugin), ("d2r-pcvr", "D2R-PCVR", unleashed, None, unleashed_plugin)):
+        if ver or invalid or plugin or mod_id in bare:
             mod = game / "mods" / folder
             (mod / f"{folder}.mpq").mkdir(parents=True, exist_ok=True)
             (mod / f"{folder}.mpq" / "modinfo.json").write_text('{"name":"%s"}' % folder, encoding="utf-8")
-            shutil.copy(manifest_for(mod_id, ver), mod / "vrmod-manifest.json")
+            if ver:
+                shutil.copy(manifest_for(mod_id, ver), mod / "vrmod-manifest.json")
+            elif invalid:
+                shutil.copy(manifest_invalid_for(mod_id, invalid), mod / "vrmod-manifest.json")
+            if plugin:
+                assert FAKE_PLUGINS, "--fake-plugins is needed for a mod whose version is in its plugin"
+                (mod / "d2rloader" / "plugins").mkdir(parents=True, exist_ok=True)
+                shutil.copy(FAKE_PLUGINS / (plugin + ".dll"), mod / "d2rloader" / "plugins" / plugin_dir[mod_id])
             days = 10 if mod_id == "d2r-vr" else 5                         # Authentic was installed first
             set_created(mod, days)
             set_created(mod / f"{folder}.mpq" / "modinfo.json", days)
     return game, WORK / name / "home"
 
 
+def put_uninstallers(game, local_appdata, authentic=True, unleashed=True):
+    """The stand-in uninstallers a mod's Setup leaves: Authentic's unins000.exe in the game folder, Unleashed's in <LOCALAPPDATA>\\Programs\\D2R PCVR (both are copies of fake_setup.exe,
+    which acts as an uninstaller under that file name: it deletes the mod's folder and writes what it was asked to a log)."""
+    if authentic:
+        shutil.copy(FAKE_SETUP, game / "unins000.exe")
+    if unleashed:
+        (local_appdata / "Programs" / "D2R PCVR").mkdir(parents=True, exist_ok=True)
+        shutil.copy(FAKE_SETUP, local_appdata / "Programs" / "D2R PCVR" / "unins000.exe")
+
+
 def env_for(game, extra=None, loopback=True, setup_exit=None):
     env = dict(os.environ)
-    for k in [k for k in env if k.startswith("VRML_") or k.startswith("FAKE_SETUP")]:
+    for k in [k for k in env if k.startswith("VRML_") or k.startswith("FAKE_SETUP") or k.startswith("FAKE_UNINSTALL")]:
         del env[k]
     if loopback:
         env["VRML_ALLOW_HTTP_HOST"] = f"127.0.0.1:{PORT}"
@@ -343,6 +382,7 @@ def env_for(game, extra=None, loopback=True, setup_exit=None):
         env["VRML_URL_LOADER"] = f"{BASE}/loader/L.zip"
         env["VRML_TEST_NO_ELEVATE"] = "1"                       # the stand-in Setup must not raise a UAC prompt
     env["FAKE_SETUP_LOG"] = str(SETUP_LOG)
+    env["FAKE_UNINSTALL_LOG"] = str(UNINSTALL_LOG)
     env["FAKE_SETUP_GAME"] = str(game)
     env["FAKE_SETUP_MANIFEST_D2R_VR"] = str(manifest_for("d2r-vr", "0.168.0"))
     env["FAKE_SETUP_MANIFEST_D2R_PCVR"] = str(manifest_for("d2r-pcvr", "0.3.19"))
@@ -519,6 +559,41 @@ def ticked(view):
     return [user32.SendMessageW(box(view, i), BM_GETCHECK, 0, 0) == 1 for i in range(3)]
 
 
+def box_on(view, i):
+    """Can the check box of row i be ticked (it is off for what is up to date)?"""
+    return bool(user32.IsWindowEnabled(box(view, i)))
+
+
+def rowbtn(view, base, i):
+    """A row's own button (base V_ACT: Install / Update / Repair / Up to date; base V_UN: Uninstall): (its label, can it be pressed). The label is "" when the button is hidden."""
+    h = dlg(dlg(view, V_ROWS), base + i)
+    return (wtext(h) if user32.IsWindowVisible(h) else "", bool(user32.IsWindowEnabled(h)))
+
+
+def act(view, i):
+    return rowbtn(view, V_ACT, i)
+
+
+def unin(view, i):
+    return rowbtn(view, V_UN, i)
+
+
+def press_row(view, base, i):
+    press(dlg(dlg(view, V_ROWS), base + i))
+
+
+def notice_of(view):
+    return wtext(dlg(view, V_NOTICE))
+
+
+def uninstall_log():
+    return UNINSTALL_LOG.read_text(encoding="utf-8", errors="replace") if UNINSTALL_LOG.exists() else ""
+
+
+def dialog_text(d):
+    return " ".join(wtext(c) for c, cls in children(d) if cls == "Static")
+
+
 def log_of(view):
     return wtext(dlg(view, V_LOG))
 
@@ -576,19 +651,21 @@ def count_in(png, pred, box_=None):
 
 # ================================================================== main
 def main():
-    global PIN, SETUP_LOG
+    global PIN, SETUP_LOG, UNINSTALL_LOG
     if WORK.exists():
         shutil.rmtree(WORK)
     WORK.mkdir(parents=True)
     SHOTS.mkdir(parents=True, exist_ok=True)
     PIN = write_pin(GOOD_ZIP)
     SETUP_LOG = WORK / "fake_setup.log"
+    UNINSTALL_LOG = WORK / "fake_uninstall.log"
     reset_server()
     real_before = local_appdata_snapshot()
     try:
         part_0_version()
         part_1_headless()
         part_2_view()
+        part_2b_rows()
         part_3_main_window()
         part_4_screenshots()
     finally:
@@ -750,7 +827,10 @@ def part_2_view():
         check(ticked(view) == [True, True, True], f"missing pieces are ticked: D2RLoader, Authentic, Unleashed ({ticked(view)})")
         check(wtext(dlg(view, V_NOTICE)).startswith("Ready to install: D2RLoader, D2R VR Authentic 0.168.0, D2R VR Unleashed 0.3.19"), f"the notice says what will happen ({wtext(dlg(view, V_NOTICE))[:90]!r})")
         check(user32.IsWindowEnabled(dlg(view, V_INSTALL)) and wtext(dlg(view, V_CLOSE)) == "Close" and wtext(dlg(view, V_INSTALL)).replace("&", "") == "Install selected", "Install selected is on, the other button says Close")
-        check(view_tab_order(view) == [1100, 1101, 1102, V_CHECK, V_INSTALL, V_CLOSE, V_LOG], f"Tab visits the three boxes, Check again, Install selected, Close, the log ({view_tab_order(view)})")
+        check(view_tab_order(view) == [1100, V_ACT, 1101, V_ACT + 1, 1102, V_ACT + 2, V_CHECK, V_INSTALL, V_CLOSE, V_LOG],
+              f"Tab visits each row's box and its own button (Uninstall is hidden: nothing is installed), then Check again, Install selected, Close, the log ({view_tab_order(view)})")
+        check([act(view, i) for i in range(3)] == [("Install", True)] * 3 and [unin(view, i)[0] for i in range(3)] == ["", "", ""],
+              f"a fresh game: every row says Install and has no Uninstall button ({[act(view, i) for i in range(3)]})")
 
         # the tick rules
         set_box(view, 1, False)
@@ -814,8 +894,12 @@ def part_2_view():
             check(wait_for(lambda: ticked(view) == [False, True, False], 5), f"the outdated Authentic is ticked, the current Unleashed and the reviewed-files D2RLoader are not ({ticked(view)})")
             check("D2R VR Unleashed: you have the newest version" in log_of(view), "the log: Unleashed is current")
             check(wtext(dlg(view, V_NOTICE)).startswith("Ready to install: D2R VR Authentic 0.168.0"), "the notice names only what is ticked")
+            check(not box_on(view, 2) and not box_on(view, 0), "the current Unleashed and the reviewed D2RLoader have their boxes off")
             set_box(view, 2, True)
-            check(user32.IsWindowEnabled(dlg(view, V_INSTALL)), "ticking a current mod is allowed (it installs it again)")
+            check(ticked(view) == [False, True, False], f"...a click on the box of what is up to date changes nothing: it cannot be ticked, so there is no repair tick ({ticked(view)})")
+            check(act(view, 2) == ("Up to date", False) and act(view, 1) == ("Update", True) and act(view, 0) == ("Up to date", False),
+                  f"the rows' own buttons: Authentic Update, Unleashed and D2RLoader a greyed Up to date ({[act(view, i) for i in range(3)]})")
+            check(unin(view, 1) == ("Uninstall", True) and unin(view, 2) == ("Uninstall", True) and unin(view, 0)[0] == "", "Uninstall on the two installed mods, never on D2RLoader")
     finally:
         app.close()
 
@@ -901,9 +985,345 @@ def part_2_view():
         app.close()
 
 
+# ------------------------------------------------------------------ 2b. the rows
+def open_view(game, home, env, *extra):
+    app = App(["--game", game, "--home", home, "--install-view", "--no-update-check", *extra], env)
+    view = app.window(VIEW_CLASS)
+    ok = view is not None and view_ready(view)
+    return app, (view if ok else None)
+
+
+def part_2b_rows():
+    print("\n=== 2b. each row has its own buttons; nothing is ticked unless it is a real install or update; a downgrade is never offered")
+    have_plugins = FAKE_PLUGINS is not None and (FAKE_PLUGINS / "fake_plugin_pcvr.dll").is_file()
+    if not have_plugins:
+        print("  (no --fake-plugins folder: the checks that read a version from a plugin are skipped)")
+
+    # ---- the report from the field: Authentic 0.170.0 is installed (its manifest does not validate), the site says 0.169; Unleashed was installed by Bear's Setup (no manifest)
+    print("  -- Authentic 0.170.0 installed, the site's newest is 0.169; Unleashed with no manifest, 0.3.19 only in its plugin")
+    reset_server()
+    STATE["auth_naive"] = True                      # the site names 0.169 whatever the player's version is
+    set_auth(version="0.169")
+    set_gh("0.3.19", U319)
+    game, home = make_game("r_report", loader=True, authentic_invalid="0.170.0", unleashed_plugin="fake_plugin_pcvr" if have_plugins else None, bare=() if have_plugins else ("d2r-pcvr",))
+    n_dl = hits("/files/D2R_VR_Setup_v0.169.0.exe") + hits("/gh/download/v0.3.19-windows-preview/D2R-PCVR-Setup-0.3.19.exe")
+    app, view = open_view(game, home, env_for(game))
+    try:
+        check(view is not None, "the view opens and hears both servers")
+        if view:
+            log = log_of(view)
+            check("D2R VR Authentic: the site names 0.169.0, you have 0.170.0: a newer version, nothing to update" in log, f"the log: the site's 0.169.0 is older than the installed 0.170.0 ({log[-400:]!r})")
+            check(ticked(view) == [False, False, False], f"nothing is ticked ({ticked(view)})")
+            check(not box_on(view, 1) and not box_on(view, 0) and (not box_on(view, 2) if have_plugins else True), "...the boxes of what is up to date are off")
+            check(act(view, 1) == ("Up to date", False) and act(view, 0) == ("Up to date", False), f"Authentic and D2RLoader: a greyed 'Up to date' ({act(view, 1)}, {act(view, 0)})")
+            if have_plugins:
+                check("D2R VR Unleashed: you have the newest version" in log, "Unleashed's version was read from its plugin and equals the newest (0.3.19)")
+                check(act(view, 2) == ("Up to date", False), f"Unleashed: a greyed 'Up to date' ({act(view, 2)})")
+            check(not user32.IsWindowEnabled(dlg(view, V_INSTALL)), "Install selected is off")
+            expect = "Nothing to install: everything is up to date." if have_plugins else "Tick what you want to install."
+            check(expect in notice_of(view), f"...and the notice says why ({notice_of(view)[:80]!r})")
+            check(unin(view, 1) == ("Uninstall", True) and unin(view, 2) == ("Uninstall", True) and unin(view, 0)[0] == "", f"Uninstall on both installed mods, none on D2RLoader ({unin(view, 1)}, {unin(view, 2)}, {unin(view, 0)})")
+            set_box(view, 1, True)
+            check(ticked(view)[1] is False, "a click on Authentic's box does nothing")
+            press(dlg(view, V_INSTALL))
+            time.sleep(1.0)
+            check(hits("/files/D2R_VR_Setup_v0.169.0.exe") + hits("/gh/download/v0.3.19-windows-preview/D2R-PCVR-Setup-0.3.19.exe") == n_dl and not setup_runs(), "nothing was downloaded or run")
+    finally:
+        app.close()
+    # the main window for the same game: no Install / Update button on a card, no badge
+    base = api_hits()
+    app = App(["--game", game, "--home", home], env_for(game))
+    try:
+        main = app.window(MAIN_CLASS)
+        check(main is not None, "the main window opens")
+        if main:
+            lst = dlg(main, M_LIST)
+            wait_for(lambda: api_hits() - base >= 2, 15)
+            time.sleep(1.0)
+            check(api_hits() - base == 2 and not dlg(lst, CARD_INSTALL) and not dlg(lst, CARD_INSTALL + 1), f"the cards offer no Update (the quiet check asked {api_hits() - base} times)")
+            log = wtext(dlg(main, M_LOG))
+            check("Update available" not in log, "...and no badge words are in the log")
+            check("D2R VR Authentic 0.170.0 (from its manifest, which is not valid) (installed)" in log, f"the log names the version read from the manifest that does not validate ({log[-500:]!r})")
+            if have_plugins:
+                check("D2R VR Unleashed 0.3.19 (from its plugin) (installed)" in log, "...and the one read from Unleashed's plugin")
+    finally:
+        app.close()
+
+    # ---- an installed version that cannot be found anywhere: not ticked, the row says Update
+    print("  -- a mod whose version cannot be read: not ticked, its button says Update, and pressing it installs only that piece")
+    reset_server()
+    set_auth(version="0.168")
+    set_gh("0.3.19", U319)
+    game, home = make_game("r_unknown", loader=True, authentic="0.168.0", bare=("d2r-pcvr",))
+    SETUP_LOG.unlink(missing_ok=True)
+    app, view = open_view(game, home, env_for(game))
+    try:
+        check(view is not None, "the view opens")
+        if view:
+            check(ticked(view) == [False, False, False], f"nothing is ticked, not even the mod whose version is unknown ({ticked(view)})")
+            check(act(view, 2) == ("Update", True) and box_on(view, 2), f"Unleashed's button says Update and its box can be ticked ({act(view, 2)})")
+            check(act(view, 1) == ("Up to date", False), "Authentic (0.168.0, the newest) is a greyed Up to date")
+            check(not user32.IsWindowEnabled(dlg(view, V_INSTALL)) and "Tick what you want to install" in notice_of(view), f"Install selected is off ({notice_of(view)[:60]!r})")
+            press_row(view, V_ACT, 2)
+            check(run_done(view, 60), f"its Update runs at once ({notice_of(view)[:70]!r})")
+            check(setup_runs() == ["D2R-PCVR"], f"only Unleashed's Setup ran ({setup_runs()})")
+            check("Done: 1 installed" in notice_of(view), f"...the summary says one piece ({notice_of(view)!r})")
+            check(wait_for(lambda: act(view, 2) == ("Up to date", False), 20), f"afterwards the row is up to date ({act(view, 2)})")
+            check(ticked(view) == [False, False, False], "...and nothing is ticked")
+    finally:
+        app.close()
+
+    # ---- a proven update: ticked; the row's Update of one runs only that one
+    if have_plugins:
+        print("  -- Unleashed 0.3.19 (from its plugin) and a newer 0.3.20 on GitHub: a proven update")
+        reset_server()
+        set_auth(version="0.168")
+        set_gh("0.3.20", U320_SLOW)
+        EVENTS.clear()
+        game, home = make_game("r_update", loader=True, unleashed_plugin="fake_plugin_pcvr")
+        SETUP_LOG.unlink(missing_ok=True)
+        app, view = open_view(game, home, env_for(game, {"FAKE_SETUP_MANIFEST_D2R_PCVR": str(manifest_for("d2r-pcvr", "0.3.20"))}))
+        try:
+            check(view is not None, "the view opens")
+            if view:
+                check(ticked(view) == [False, True, True], f"the missing Authentic and the proven update of Unleashed are ticked ({ticked(view)})")
+                check(act(view, 2) == ("Update", True) and act(view, 1) == ("Install", True), f"the rows say Update and Install ({act(view, 2)}, {act(view, 1)})")
+                check(unin(view, 2) == ("Uninstall", True) and unin(view, 1)[0] == "", "Uninstall only on the installed Unleashed")
+                press_row(view, V_ACT, 2)
+                check(run_done(view, 90), f"the row's Update runs ({notice_of(view)[:70]!r})")
+                check(setup_runs() == ["D2R-PCVR"] and not (game / "mods/D2R-VR").exists(), f"only Unleashed was updated, Authentic was not touched ({setup_runs()})")
+                check(wait_for(lambda: act(view, 2) == ("Up to date", False), 20) and act(view, 1) == ("Install", True), "Unleashed is up to date now; Authentic still says Install")
+        finally:
+            app.close()
+
+    # ---- a fresh game: the row's Install of Authentic runs only Authentic (and D2RLoader, which it needs)
+    print("  -- a fresh game: a row's Install takes only its piece (and D2RLoader when it needs it)")
+    reset_server()
+    game, home = make_game("r_fresh")
+    SETUP_LOG.unlink(missing_ok=True)
+    n_files = hits("/files/D2R_VR_Setup_v0.168.0.exe")
+    app, view = open_view(game, home, env_for(game))
+    try:
+        check(view is not None, "the view opens")
+        if view:
+            press_row(view, V_ACT, 1)
+            d = app.wait_dialog()
+            check(d is not None, "Install on Authentic's row asks the question about a download without a published checksum first")
+            if d:
+                check("does not publish a checksum" in dialog_text(d) and (user32.SendMessageW(d, DM_GETDEFID, 0, 0) & 0xFFFF) == IDNO, "...the same question, its default button is No")
+                press(dlg(d, IDNO))
+                check(wait_for(lambda: not app.dialogs(), 5), "...No closes it")
+            check(wait_for(lambda: "Nothing was downloaded" in notice_of(view), 5) and hits("/files/D2R_VR_Setup_v0.168.0.exe") == n_files and not setup_runs(), "No: nothing was downloaded or run")
+            check(ticked(view) == [True, True, False], f"the row ticked only its piece, and D2RLoader which is missing ({ticked(view)})")
+            press_row(view, V_ACT, 1)
+            d = app.wait_dialog()
+            if d:
+                press(dlg(d, IDYES))
+            check(run_done(view, 90), f"Yes: it runs ({notice_of(view)[:70]!r})")
+            check(setup_runs() == ["D2R-VR"] and not (game / "mods/D2R-PCVR").exists(), f"only Authentic's Setup ran, Unleashed was not touched ({setup_runs()})")
+            check(all((game / n).read_bytes() == dd for n, dd in REAL.items()), "D2RLoader came with it")
+            check("Done: 2 installed" in notice_of(view), f"the summary: {notice_of(view)!r}")
+            check(wait_for(lambda: act(view, 1) == ("Up to date", False) and act(view, 0) == ("Up to date", False), 20), f"Authentic and D2RLoader are up to date now ({act(view, 1)}, {act(view, 0)})")
+            check(act(view, 2) == ("Install", True) and unin(view, 1) == ("Uninstall", True) and unin(view, 2)[0] == "", "Unleashed still says Install; Authentic got an Uninstall button")
+            check(ticked(view)[1] is False, "nothing that is up to date is ticked")
+    finally:
+        app.close()
+
+    # ---- D2RLoader's own row: Install when missing, Repair when its files differ, greyed Up to date when reviewed
+    print("  -- D2RLoader's row: Install / Repair / Up to date, and no Uninstall")
+    reset_server()
+    game, home = make_game("r_loader_missing")
+    SETUP_LOG.unlink(missing_ok=True)
+    app, view = open_view(game, home, env_for(game))
+    try:
+        check(view is not None and act(view, 0) == ("Install", True), f"missing: Install ({act(view, 0) if view else None})")
+        if view:
+            check(unin(view, 0)[0] == "", "D2RLoader has no Uninstall button")
+            press_row(view, V_ACT, 0)
+            check(run_done(view, 60), "Install on D2RLoader's row runs")
+            check(all((game / n).read_bytes() == dd for n, dd in REAL.items()) and not setup_runs() and not (game / "mods/D2R-VR").exists(), "only D2RLoader was installed, no mod's Setup ran")
+            check(wait_for(lambda: act(view, 0) == ("Up to date", False), 20), f"reviewed: a greyed Up to date ({act(view, 0)})")
+            check(not box_on(view, 0), "...and its box is off")
+    finally:
+        app.close()
+    reset_server()
+    game, home = make_game("r_loader_differs", loader=True, authentic="0.168.0", unleashed="0.3.19")
+    own = b"the player's own D2RLoader.exe"
+    (game / "D2RLoader.exe").write_bytes(own)
+    SETUP_LOG.unlink(missing_ok=True)
+    app, view = open_view(game, home, env_for(game))
+    try:
+        check(view is not None, "the view opens over a D2RLoader whose files differ")
+        if view:
+            check(wait_for(lambda: act(view, 0) == ("Repair", True), 30), f"the row says Repair ({act(view, 0)})")
+            check(ticked(view) == [False, False, False] and box_on(view, 0), f"it is not ticked by itself (it follows the mods), its box can be ticked ({ticked(view)})")
+            press_row(view, V_ACT, 0)
+            check(run_done(view, 60), f"Repair runs ({notice_of(view)[:70]!r})")
+            check(all((game / n).read_bytes() == dd for n, dd in REAL.items()) and not setup_runs(), "the reviewed files are back; no mod's Setup ran")
+            backups = list((home / "backups").rglob("D2RLoader.exe"))
+            check(len(backups) == 1 and backups[0].read_bytes() == own, f"the file it replaced was backed up first ({[str(b) for b in backups]})")
+            check(wait_for(lambda: act(view, 0) == ("Up to date", False), 20), "afterwards: a greyed Up to date")
+    finally:
+        app.close()
+
+    # ---- the row's Uninstall
+    print("  -- the row's Uninstall: the question, No runs nothing, the mod's own uninstaller, refused while the game runs, the words without an uninstaller")
+    reset_server()
+    set_auth(version="0.168")
+    set_gh("0.3.19", U319)
+    la = WORK / "la_full"
+    la_empty = WORK / "la_empty"
+    (la_empty / "Programs").mkdir(parents=True, exist_ok=True)
+    game, home = make_game("r_uninst", loader=True, authentic="0.168.0", unleashed="0.3.19")
+    put_uninstallers(game, la)
+    UNINSTALL_LOG.unlink(missing_ok=True)
+    env_u = env_for(game, {"LOCALAPPDATA": str(la)})
+    app, view = open_view(game, home, env_u)
+    try:
+        check(view is not None, "the view opens over a game with both mods and both uninstallers")
+        if view:
+            check(unin(view, 1) == ("Uninstall", True) and unin(view, 2) == ("Uninstall", True) and unin(view, 0)[0] == "", "Uninstall on the two mods, none on D2RLoader")
+            before = snap(game)
+            press_row(view, V_UN, 2)
+            d = app.wait_dialog()
+            check(d is not None, "Unleashed's Uninstall asks a question")
+            if d:
+                title, text = wtext(d), dialog_text(d).strip()
+                check(title == "Uninstall D2R VR Unleashed" and text.startswith("Uninstall D2R VR Unleashed?") and "D2R PCVR" in text and "unins000.exe" in text and "the mod's own uninstaller" in text and "other mods are not touched" in text,
+                      f"...it names the mod and its own uninstaller ({title!r}, {text[:70]!r})")
+                check((user32.SendMessageW(d, DM_GETDEFID, 0, 0) & 0xFFFF) == IDNO, "...the default button is No")
+                press(dlg(d, IDNO))
+                check(wait_for(lambda: not app.dialogs(), 5), "...No closes it")
+            time.sleep(1.0)
+            check(not uninstall_log() and snap(game) == before and unin(view, 2) == ("Uninstall", True), "No: nothing ran and nothing changed")
+            check("Not uninstalling D2R VR Unleashed: you said no" in log_of(view), "...the log says so")
+            # Authentic's own question (its uninstaller asks Windows for rights, so it is never run by a test)
+            press_row(view, V_UN, 1)
+            d = app.wait_dialog()
+            check(d is not None and wtext(d) == "Uninstall D2R VR Authentic" and "unins000.exe" in dialog_text(d), "Authentic's Uninstall asks a question that names its unins000.exe")
+            if d:
+                press(dlg(d, IDNO))
+                wait_for(lambda: not app.dialogs(), 5)
+            time.sleep(0.5)
+            check(not uninstall_log() and snap(game) == before, "...No: nothing ran")
+            # Yes on Unleashed: its own uninstaller runs (no /SILENT: its own question shows), and the row changes when it has ended
+            press_row(view, V_UN, 2)
+            d = app.wait_dialog()
+            if d:
+                press(dlg(d, IDYES))
+            check(wait_for(lambda: "uninstaller removed" in uninstall_log(), 20), "Yes: the mod's own uninstaller ran")
+            text = uninstall_log()
+            check("uninstaller started args=0" in text and "uninstaller mod=D2R-PCVR" in text, f"...with no arguments (no /SILENT) ({text.strip().splitlines()[:3]})")
+            check(not (game / "mods/D2R-PCVR").exists() and (game / "mods/D2R-VR").is_dir(), "...it removed Unleashed's folder and only that")
+            check(wait_for(lambda: act(view, 2) == ("Install", True) and unin(view, 2)[0] == "", 30), f"when it has ended the row changes by itself: Install, no Uninstall ({act(view, 2)}, {unin(view, 2)})")
+            check(wait_for(lambda: "D2R VR Unleashed was uninstalled" in notice_of(view), 10), f"the notice says so ({notice_of(view)[:70]!r})")
+            check(unin(view, 1) == ("Uninstall", True) and act(view, 1) == ("Up to date", False), "Authentic's row is as it was")
+            check(wait_for(lambda: ticked(view)[2], 10), f"the missing Unleashed is ticked again like any missing mod ({ticked(view)})")
+    finally:
+        app.close()
+
+    # the player says No in the uninstaller's own question: the mod stays, and the row says so
+    game, home = make_game("r_uninst_keep", loader=True, authentic="0.168.0", unleashed="0.3.19")
+    put_uninstallers(game, la)
+    UNINSTALL_LOG.unlink(missing_ok=True)
+    app, view = open_view(game, home, env_for(game, {"LOCALAPPDATA": str(la), "FAKE_UNINSTALL_MODE": "keep", "FAKE_UNINSTALL_DELAY_MS": "2500"}))
+    try:
+        if view:
+            press_row(view, V_UN, 2)
+            d = app.wait_dialog()
+            if d:
+                press(dlg(d, IDYES))
+            check(wait_for(lambda: "Waiting for the uninstaller of D2R VR Unleashed" in notice_of(view), 10), "while its uninstaller runs the notice says so")
+            check(not user32.IsWindowEnabled(dlg(view, V_INSTALL)) and not any(act(view, i)[1] or unin(view, i)[1] for i in range(3)), "...and no button of a row, nor Install selected, can be pressed")
+            check(wait_for(lambda: "still installed" in notice_of(view), 20), f"it ended without removing anything: the row says it is still installed ({notice_of(view)[:80]!r})")
+            check((game / "mods/D2R-PCVR").is_dir() and unin(view, 2) == ("Uninstall", True), "...and the mod is still there, its Uninstall button is back")
+    finally:
+        app.close()
+
+    # refused while the game runs
+    game, home = make_game("r_uninst_running", loader=True, authentic="0.168.0", unleashed="0.3.19")
+    put_uninstallers(game, la)
+    UNINSTALL_LOG.unlink(missing_ok=True)
+    app, view = open_view(game, home, env_for(game, {"LOCALAPPDATA": str(la)}), "--processes", "D2R.exe")
+    try:
+        check(view is not None, "the view opens while the game runs")
+        if view:
+            check(unin(view, 2) == ("Uninstall", True), "the Uninstall button is there (pressing it is what is refused)")
+            check(act(view, 1) == ("Up to date", False), "(and the rows' install buttons are off)")
+            press_row(view, V_UN, 2)
+            time.sleep(0.8)
+            check(not app.dialogs() and "Save & Exit in the game first" in notice_of(view) and "does not close it" in notice_of(view), f"refused: no question, the notice says to Save & Exit in the game first ({notice_of(view)[:90]!r})")
+            check(not uninstall_log() and (game / "mods/D2R-PCVR").is_dir() and "Not uninstalling D2R VR Unleashed" in log_of(view), "...nothing ran, nothing was removed, the log says so")
+    finally:
+        app.close()
+
+    # no uninstaller on this computer (a ZIP install): the words for removing it by hand; the launcher never deletes the folder
+    game, home = make_game("r_uninst_none", loader=True, authentic="0.168.0", unleashed="0.3.19")
+    UNINSTALL_LOG.unlink(missing_ok=True)
+    app, view = open_view(game, home, env_for(game, {"LOCALAPPDATA": str(la_empty)}))
+    try:
+        if view:
+            before = snap(game)
+            press_row(view, V_UN, 2)
+            d = app.wait_dialog()
+            check(d is not None and wtext(d) == "Uninstall D2R VR Unleashed", "with no uninstaller on this computer the button opens a message")
+            if d:
+                text = dialog_text(d)
+                check("no uninstaller" in text and "delete the folder" in text and "D2R-PCVR" in text and "never deletes a mod's folder" in text, f"...it says how to remove the mod by hand ({text[:80]!r})")
+                press(dlg(d, 1))
+                wait_for(lambda: not app.dialogs(), 5)
+            time.sleep(0.5)
+            check(snap(game) == before and not uninstall_log(), "...and nothing was run or deleted")
+    finally:
+        app.close()
+
+
+
 # ------------------------------------------------------------------ 3. the main window
 def part_3_main_window():
     print("\n=== 3. the main window: update badges, the quiet check, the first-run offer")
+    if FAKE_PLUGINS is not None and (FAKE_PLUGINS / "fake_plugin_pcvr.dll").is_file():
+        print("  -- Unleashed has no manifest: its version (0.3.19) is read from its plugin and compared like any other")
+        for newest, want_button in (("0.3.20", True), ("0.3.19", False), ("0.3.17", False)):
+            reset_server()
+            set_auth(version="0.168")
+            set_gh(newest, U320_SLOW if newest == "0.3.20" else U319)
+            game, home = make_game("m_plugin", loader=True, unleashed_plugin="fake_plugin_pcvr")
+            base_hits = api_hits()
+            app = App(["--game", game, "--home", home], env_for(game))
+            try:
+                main = app.window(MAIN_CLASS)
+                if not main:
+                    check(False, "the window opens")
+                    continue
+                lst = dlg(main, M_LIST)
+                wait_for(lambda: api_hits() - base_hits >= 2, 15)
+                time.sleep(1.0)
+                log = wtext(dlg(main, M_LOG))
+                if want_button:
+                    check(wait_for(lambda: wtext(dlg(lst, CARD_INSTALL)) == "Update", 10), "newest 0.3.20: the installed Unleashed card (listed first) gets an Update button")
+                    check("D2R VR Unleashed: Update available: 0.3.19 -> 0.3.20" in log, f"...and the badge says from which version ({log[-200:]!r})")
+                else:
+                    check(wtext(dlg(lst, CARD_INSTALL)) != "Update" and "Update available" not in log, f"newest {newest}: no Update button, no badge (never a downgrade)")
+            finally:
+                app.close()
+    print("  -- Unleashed with nothing that says which version: the old rule, an unknown version is offered the newest (without a 'from')")
+    reset_server()
+    set_auth(version="0.168")
+    set_gh("0.3.19", U319)
+    game, home = make_game("m_unknown", loader=True, bare=("d2r-pcvr",))
+    base_hits = api_hits()
+    app = App(["--game", game, "--home", home], env_for(game))
+    try:
+        main = app.window(MAIN_CLASS)
+        if main:
+            wait_for(lambda: api_hits() - base_hits >= 2, 15)
+            time.sleep(1.0)
+            log = wtext(dlg(main, M_LOG))
+            check("D2R VR Unleashed, version not known (installed)" in log and "D2R VR Unleashed: Update available: 0.3.19" in log and "0.3.19 ->" not in log,
+                  f"the log: version not known, Update available: 0.3.19 ({log[-250:]!r})")
+    finally:
+        app.close()
     reset_server()
     set_auth(version="0.168")
     set_gh("0.3.19", U319)
@@ -1064,6 +1484,40 @@ def part_4_screenshots():
         check(png.count(lambda r, g, b: abs(r - 15) < 30 and abs(g - 108) < 30 and abs(b - 189) < 30) > 300, "...the ticked cards have the accent blue border")
     check(not (game / "D2RLoader.exe").exists() and not (home / "settings.json").exists(), "the screenshot installed and wrote nothing")
 
+    # the rows in their states (the pictures of docs/screens)
+    have_plugins = FAKE_PLUGINS is not None and (FAKE_PLUGINS / "fake_plugin_pcvr.dll").is_file()
+    accent_blue = lambda r, g, b: abs(r - 15) < 30 and abs(g - 108) < 30 and abs(b - 189) < 30
+    if have_plugins:
+        # (a) both mods installed and current: nothing ticked, Install selected off, Uninstall buttons, greyed Up to date (Authentic 0.170.0 against a site that says 0.169)
+        STATE["auth_naive"] = True
+        set_auth(version="0.169")
+        set_gh("0.3.19", U319)
+        game, home = make_game("s_current", loader=True, authentic_invalid="0.170.0", unleashed_plugin="fake_plugin_pcvr")
+        code, out = shot(["--game", game, "--home", home, "--install-view", "--no-update-check"], "view_installed_current", env_fresh(game))
+        check(code == 0 and out.is_file(), f"both installed and current: the view is shot (exit {code})")
+        if out.is_file():
+            png = U.Png(out)
+            check(png.count(is_ok_green) > 200, "...green: the installed versions and 'you have the newest version'")
+            check(png.count(accent_blue) < 800, f"...no card is ticked: no accent blue border ({png.count(accent_blue)} blue pixels; a ticked card has thousands)")
+            notice_box = (0, int(png.h * 0.59), png.w, int(png.h * 0.64))
+            check(png.count(is_ok_green, notice_box) > 40 and png.count(is_amber, notice_box) < 20,
+                  f"...the notice 'Nothing to install: everything is up to date.' is green good news, not an amber warning ({png.count(is_ok_green, notice_box)} green, {png.count(is_amber, notice_box)} amber pixels)")
+        STATE["auth_naive"] = False
+        # (c) an update is available: the Update buttons, ticked cards, the amber badge
+        reset_server()
+        set_gh("0.3.21", U319)
+        game, home = make_game("s_update", loader=True, authentic="0.167.0", unleashed_plugin="fake_plugin_four")        # Unleashed's plugin says 0.3.20
+        code, out = shot(["--game", game, "--home", home, "--install-view", "--no-update-check"], "view_update_available", env_fresh(game))
+        check(code == 0 and out.is_file(), f"an update is available: the view is shot (exit {code})")
+        if out.is_file():
+            png = U.Png(out)
+            check(png.count(is_amber) > 150, "...the amber 'Update available' badges are there")
+            check(png.count(accent_blue) > 300, "...the cards of the updates are ticked")
+        # (d) the version of Unleashed read from its plugin (no manifest), and a mod whose version cannot be read at all (Authentic: not ticked, its button says Update)
+        reset_server()
+        game, home = make_game("s_plugin", loader=True, unleashed_plugin="fake_plugin_pcvr", bare=("d2r-vr",))
+        code, out = shot(["--game", game, "--home", home, "--install-view", "--no-update-check"], "view_plugin_version", env_fresh(game))
+        check(code == 0 and out.is_file(), f"the version read from a plugin: the view is shot (exit {code})")
     empty = WORK / "s_nogame"
     empty.mkdir()
     code, out = shot(["--game", empty, "--home", WORK / "s_nogame_home", "--install-view", "--no-update-check"], "view_no_game", env_fresh(empty))

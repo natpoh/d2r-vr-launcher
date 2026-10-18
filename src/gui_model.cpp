@@ -45,7 +45,7 @@ GameChoice MakeChoice(const fs::path& dir, const std::string& source) {
 std::string ModSignature(const std::vector<ModEntry>& mods) {
     std::string s;
     for (const ModEntry& m : mods)
-        s += m.id + "|" + m.name + "|" + m.version + "|" + (m.installed ? "1" : "0") + "|" + U(m.icon) + "|" + std::to_string(m.notes.size()) + "|" + m.source + "\n";
+        s += m.id + "|" + m.name + "|" + m.version + "|" + m.found_version + "|" + m.found_from + "|" + (m.installed ? "1" : "0") + "|" + U(m.icon) + "|" + std::to_string(m.notes.size()) + "|" + m.source + "\n";
     return s;
 }
 
@@ -352,7 +352,7 @@ Model::CardOffer Model::OfferFor(const ModEntry& m) const {
         return o;
     }
     const Release* r = LatestOf(m.id);
-    const std::string have = m.source == "manifest" ? NormalizeVersion(m.version) : "";
+    const std::string have = NormalizeVersion(m.found_version);       // "" = installed, version not known (never the built-in profile's)
     if (r && IsUpdateFor(have, *r)) {
         o.kind = CardOffer::Kind::Update;
         o.label = "Update";
@@ -557,6 +557,11 @@ void Model::Log(const std::string& line) {
 }
 
 // ------------------------------------------------------------------ text for the console and the log
+
+std::string UninstallQuestion(const ModEntry& m, const Model::UninstallOffer& o) {
+    return "Uninstall " + m.name + "?\n\nThis runs the mod's own uninstaller:\n" + DisplayPath(o.exe) +
+           "\n\nIt may ask its own questions. The game itself and the other mods are not touched.";
+}
 
 std::string FormatOutcome(const StartOutcome& so, bool dry_run, int* exit_code) {
     std::ostringstream out;

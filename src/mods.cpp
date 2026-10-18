@@ -7,6 +7,8 @@
 #include "builtin_mods.h"
 #include "deps.h"
 #include "game.h"
+#include "releases.h"
+#include "versioninfo.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -92,6 +94,8 @@ void Fill(ModEntry& e, const Manifest& m, const fs::path& dir, const std::string
     e.launchable = !m.launch.empty();
     e.manifest = m;
     e.manifest.dir = dir;
+    e.found_version = source == "manifest" ? m.version : "";       // a manifest of the mod's own says what is installed; the built-in profile only says what the launcher shipped with
+    e.found_from = source == "manifest" ? "manifest" : "";
     if (!m.icon.empty() && IsFile(dir / P(m.icon))) e.icon = dir / P(m.icon);
 }
 
@@ -122,6 +126,59 @@ bool ReadModManifest(const fs::path& dir, const std::string& folder, Manifest* m
     }
     *m = got;
     return true;
+}
+
+// The `version` of a vrmod-manifest.json that does NOT validate (a field from a newer or older schema, say), read from the raw JSON. Only when the file says it is THIS mod:
+// its id is the known id and, if it names a D2RLoader mod, that is this folder. "" when the file is not JSON, names another mod or has no version number.
+std::string LenientManifestVersion(const fs::path& dir, const std::string& id, const std::string& folder) {
+    std::string text;
+    if (!ReadFile(dir / "vrmod-manifest.json", &text)) return "";
+    try {
+        const Json j = Json::Parse(text);
+        if (!j.is_object() || !IEquals(j.get_string("id"), id)) return "";
+        if (const Json* dm = j.find("d2rloader_mod"))
+            if (dm->is_object() && !dm->get_string("name").empty() && !IEquals(dm->get_string("name"), folder)) return "";
+        const std::string v = j.get_string("version");
+        return NormalizeVersion(v).empty() ? std::string() : v;
+    } catch (const JsonError&) {
+        return "";
+    }
+}
+
+// "0.3.19" / "0.170.0.0" / "v0.3.19-windows-preview" -> "0.3.19" / "0.170.0" / "0.3.19"; a fourth number that is not 0 stays.
+std::string PluginVersionText(const std::string& raw) {
+    std::string n = NormalizeVersion(raw);
+    if (n.empty()) return "";
+    const std::vector<std::string> p = Split(n, '.');
+    if (p.size() == 4 && p[3] == "0") n = p[0] + "." + p[1] + "." + p[2];
+    return n;
+}
+
+// The version of the mod's own plugin: the DLL in <mod>/d2rloader/plugins whose version resource says `mod-id=<id>` in its Comments. A match on the mod id only (the plugin's file
+// name is not part of it: earlier D2R VR Unleashed builds called it d2rl-vrcam.dll). The newest wins when more than one says so. "" when there is none or it has no version.
+std::string PluginVersion(const fs::path& modDir, const std::string& id) {
+    const fs::path plugins = modDir / "d2rloader" / "plugins";
+    if (!IsDir(plugins)) return "";
+    std::vector<fs::path> dlls;
+    std::error_code ec;
+    for (fs::directory_iterator it(plugins, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code e2;
+        if (it->is_regular_file(e2) && IEquals(U(it->path().extension()), ".dll")) dlls.push_back(it->path());
+    }
+    std::sort(dlls.begin(), dlls.end());
+    std::string best;
+    for (const fs::path& dll : dlls) {
+        const FileVersion fv = ReadFileVersion(dll);
+        if (!fv.ok || !IEquals(CommentValue(fv.comments, "mod-id"), id)) continue;
+        std::string v = PluginVersionText(fv.product_version);
+        if (v.empty()) v = PluginVersionText(fv.file_version);
+        if (v.empty() && fv.has_fixed && (fv.product_numbers[0] | fv.product_numbers[1] | fv.product_numbers[2] | fv.product_numbers[3]) != 0)
+            v = PluginVersionText(std::to_string(fv.product_numbers[0]) + "." + std::to_string(fv.product_numbers[1]) + "." + std::to_string(fv.product_numbers[2]) +
+                                  (fv.product_numbers[3] ? "." + std::to_string(fv.product_numbers[3]) : std::string()));
+        if (v.empty()) continue;
+        if (best.empty() || IsNewer(v, best)) best = v;
+    }
+    return best;
 }
 
 #ifdef _WIN32
@@ -306,14 +363,27 @@ std::vector<ModEntry> DiscoverMods(const fs::path& game) {
         e.known = true;
         Manifest use = b;
         std::string source = "built-in";
+        std::string found, found_from;
         if (e.installed) {
             Manifest m;
             if (ReadModManifest(dir, folder, &m, &e.notes)) {
                 use = m;
                 source = "manifest";
+            } else {
+                // a manifest that does not validate still names its version (the note says it is not valid); else the mod's own plugin says which release it is
+                found = LenientManifestVersion(dir, b.id, folder);
+                if (!found.empty()) found_from = "manifest (not valid)";
+                if (found.empty()) {
+                    found = PluginVersion(dir, b.id);
+                    if (!found.empty()) found_from = "plugin";
+                }
             }
         }
         Fill(e, use, dir, source);
+        if (source != "manifest") {
+            e.found_version = found;
+            e.found_from = found_from;
+        }
         if (e.installed) MissingModFiles(dir, use, &e.notes);
         for (const std::string& n : GlobalPluginNotes(game)) e.notes.push_back(n);   // also when the mod is not installed: an earlier install is why
         out.push_back(std::move(e));

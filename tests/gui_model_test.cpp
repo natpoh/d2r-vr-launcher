@@ -1,5 +1,7 @@
 // What the launcher window decides, without the window: the game list, the preselected mod, the runtime per mod, what Play may do and why not,
 // what it remembers, the status line, the command line. (The window itself is checked by tools/ui_smoke.py.)
+#include <algorithm>
+
 #include "fakes.h"
 #include "gui_model.h"
 #include "sandbox.h"
@@ -570,5 +572,90 @@ TEST(uninstall_is_refused_while_the_game_runs_and_without_a_game_folder) {
     Model nm = none.Make();
     CHECK(nm.UninstallRefusal().find("Pick the folder") != std::string::npos);
 }
+
+// ================================================================== the version found in the folder drives the cards (not the built-in profile's)
+
+TEST(a_card_compares_the_version_found_in_the_mods_folder_and_never_offers_a_downgrade) {
+    Rig r;
+    // Authentic 0.170.0, its manifest not valid for this build (a field of another schema): the version is read from it all the same
+    r.Install("D2R-VR");
+    {
+        Json j = Json::Parse(tt::Read(fs::path(VRML_SOURCE_DIR) / "examples" / "d2rloader-mods" / "d2r-vr" / "vrmod-manifest.json"));
+        j.set("version", Json::String("0.170.0"));
+        j.set("a_field_of_another_schema", Json::Bool(true));
+        tt::Write(r.sb.game / "mods" / "D2R-VR" / "vrmod-manifest.json", j.dump());
+    }
+    Model m = r.Make();
+    ModEntry a = *std::find_if(m.mods().begin(), m.mods().end(), [](const ModEntry& e) { return e.id == "d2r-vr"; });
+    CHECK(a.installed && a.source == "built-in");
+    CHECK_EQ(a.found_version, std::string("0.170.0"));
+    // the site's newest is 0.169 (what the player's screenshot showed): nothing is offered
+    m.SetLatest(Info("d2r-vr", Newest("d2r-vr", "0.169.0")));
+    CHECK(m.OfferFor(a).kind == Model::CardOffer::Kind::None && m.OfferFor(a).badge.empty());
+    m.SetLatest(Info("d2r-vr", Newest("d2r-vr", "0.170.0")));
+    CHECK(m.OfferFor(a).kind == Model::CardOffer::Kind::None);
+    m.SetLatest(Info("d2r-vr", Newest("d2r-vr", "0.171.0")));
+    CHECK(m.OfferFor(a).kind == Model::CardOffer::Kind::Update);
+    CHECK_EQ(m.OfferFor(a).badge, std::string("Update available: 0.170.0 -> 0.171.0"));
+    // a version that could not be found anywhere: the old rule (an unknown version is offered the newest, without a "from")
+    tt::Write(r.sb.game / "mods" / "D2R-VR" / "vrmod-manifest.json", "{ not json");
+    Model unknown = r.Make();
+    ModEntry b = *std::find_if(unknown.mods().begin(), unknown.mods().end(), [](const ModEntry& e) { return e.id == "d2r-vr"; });
+    CHECK(b.installed && b.found_version.empty());
+    unknown.SetLatest(Info("d2r-vr", Newest("d2r-vr", "0.169.0")));
+    CHECK_EQ(unknown.OfferFor(b).badge, std::string("Update available: 0.169.0"));
+}
+
+#ifdef VRML_FAKE_PLUGIN_DIR
+TEST(unleashed_without_a_manifest_is_compared_by_its_plugins_version) {
+    Rig r;
+    r.Install("D2R-PCVR");                                    // his Setup writes no vrmod-manifest.json
+    const fs::path plugins = r.sb.game / "mods" / "D2R-PCVR" / "d2rloader" / "plugins";
+    fs::create_directories(plugins);
+    Model open = r.Make();                                    // a window that is already open
+    ModEntry u = *std::find_if(open.mods().begin(), open.mods().end(), [](const ModEntry& e) { return e.id == "d2r-pcvr"; });
+    CHECK(u.installed && u.found_version.empty());
+    fs::copy_file(fs::path(VRML_FAKE_PLUGIN_DIR) / "fake_plugin_pcvr.dll", plugins / "d2rl-pcvr.dll");
+    Model m = r.Make();
+    u = *std::find_if(m.mods().begin(), m.mods().end(), [](const ModEntry& e) { return e.id == "d2r-pcvr"; });
+    CHECK_EQ(u.found_version, std::string("0.3.19"));
+    CHECK_EQ(u.found_from, std::string("plugin"));
+    m.SetLatest(Info("d2r-pcvr", Newest("d2r-pcvr", "0.3.19", true)));
+    CHECK(m.OfferFor(u).kind == Model::CardOffer::Kind::None);                        // up to date
+    m.SetLatest(Info("d2r-pcvr", Newest("d2r-pcvr", "0.3.19")));
+    CHECK(m.OfferFor(u).kind == Model::CardOffer::Kind::None);                        // the same
+    m.SetLatest(Info("d2r-pcvr", Newest("d2r-pcvr", "0.3.17")));
+    CHECK(m.OfferFor(u).kind == Model::CardOffer::Kind::None);                        // older: never a downgrade
+    m.SetLatest(Info("d2r-pcvr", Newest("d2r-pcvr", "0.3.20")));
+    CHECK(m.OfferFor(u).kind == Model::CardOffer::Kind::Update);
+    CHECK_EQ(m.OfferFor(u).badge, std::string("Update available: 0.3.19 -> 0.3.20"));
+    // a window that was open when the plugin appeared sees the change
+    CHECK(open.Refresh());
+    fs::remove(plugins / "d2rl-pcvr.dll");
+    CHECK(open.Refresh());
+    CHECK(!open.Refresh());
+}
+#endif
+
+TEST(the_question_before_an_uninstaller_names_the_mod_and_the_uninstaller) {
+    Rig r;
+    r.Install("D2R-PCVR");
+    const fs::path la = r.sb.root / "la";
+    r.svc.env["LOCALAPPDATA"] = U(la);
+    tt::Write(la / "Programs" / "D2R PCVR" / "unins000.exe", "his uninstaller");
+    Model m = r.Make();
+    const ModEntry* e = nullptr;
+    for (const ModEntry& x : m.mods())
+        if (x.id == "d2r-pcvr") e = &x;
+    REQUIRE(e);
+    const Model::UninstallOffer o = m.UninstallFor(*e);
+    REQUIRE(o.kind == Model::UninstallOffer::Kind::Run);
+    const std::string q = UninstallQuestion(*e, o);
+    CHECK(q.find("Uninstall D2R VR Unleashed?") == 0);
+    CHECK(q.find("the mod's own uninstaller") != std::string::npos && q.find("unins000.exe") != std::string::npos && q.find("D2R PCVR") != std::string::npos);
+    CHECK(q.find("may ask its own questions") != std::string::npos && q.find("not touched") != std::string::npos);
+    CHECK(q.find('/') == std::string::npos);                                        // a path the way the player knows it: backslashes
+}
+
 
 TEST_MAIN()

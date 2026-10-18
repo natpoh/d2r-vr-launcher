@@ -662,6 +662,10 @@ def main():
         check(gui.hwnd is not None, "the window opens (Authentic and Unleashed installed, no uninstaller of Unleashed)")
         if gui.hwnd:
             gui.wait_ready()
+            log_text = gui.text("log")
+            check("D2R VR Authentic 0.169.0 (installed, manifest)" in log_text, "the log names the version found in Authentic's own manifest (0.169.0)")
+            check("D2R VR Unleashed, version not known (installed)" in log_text,
+                  "...and says the version of Unleashed is not known: its Setup writes no manifest and the built-in profile's version is not what is installed (the cards say 'Version not known')")
             lst = gui.child("mod_list")
             ba, bu = gui.child(4000, lst), gui.child(4001, lst)
             check(ba and bu and gui.text(4000, lst) == "Uninstall" and gui.text(4001, lst) == "Uninstall", "both installed cards have an Uninstall button")

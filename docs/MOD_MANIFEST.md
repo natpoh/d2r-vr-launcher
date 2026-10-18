@@ -32,7 +32,7 @@ and `.../d2r-pcvr/vrmod-manifest.json`.
 | `d2rloader_mod.name` | the mod folder name, exactly: `D2R-VR`, `D2R-PCVR` |
 | `name` | the display name: **D2R VR Authentic**, **D2R VR Unleashed** |
 | `description` | one line under the name (Authentic: "Diablo II as it is, in VR: the game's own rules, your body and hands."; Unleashed: "Diablo II reimagined for physical, immersive VR.") |
-| `version`, `publisher`, `homepage`, `support`, `license` | shown in the window and the support report |
+| `version`, `publisher`, `homepage`, `support`, `license` | shown in the window and the support report. `version` is also how the launcher knows **what is installed** (see "What is installed" below): major.minor.patch with an optional `-suffix`; versions are compared as numbers and a suffix is the same base version |
 | `icon` | a PNG or ICO next to the manifest (`launcher_icon.png`), shown in the mod's card |
 | `game` | `builds` the mod was made for (a warning when the game differs), `stores` (`steam`, `battlenet`), `processes` that must not run when it is started |
 | `requires[]` | `d2rloader` with `files[].sha256_any_of` (the three 1.3.1-beta files) and `x-archive` (URL and the two reviewed ZIP hashes) |
@@ -43,6 +43,19 @@ and `.../d2r-pcvr/vrmod-manifest.json`.
 
 `{game}` is the game folder. The launcher builds one start from the option: the runtime picked for this start becomes `XR_RUNTIME_JSON` in the child's environment (the
 system's active runtime is never changed), `VRMOD_ACTIVE_ID`, `VRMOD_ACTIVE_VERSION`, `VRMOD_RUNTIME`, `VRMOD_STORE` and `VRMOD_GAME_BUILD` tell the mod who started it.
+
+## What is installed (which version)
+
+The window's cards, update badges and install rows, `vrmodlauncher mods` and the question to the update servers all use one value, `ModEntry::found_version`, found in this order:
+
+1. the `version` of `<mod>\vrmod-manifest.json` when it validates;
+2. the `version` string of a manifest that does **not** validate (a field of a newer or older schema - the launcher reads it leniently from the raw JSON, only when the file's `id` is this mod's and its `d2rloader_mod`, if named, is this folder); the "is not valid" note stays;
+3. the ProductVersion in the version resource (VERSIONINFO) of the DLL in `<mod>\d2rloader\plugins` whose **Comments** carry `mod-id=<id>` (`d2r-vr`, `d2r-pcvr`; tokens separated by spaces, `;` or `,`; the file name does not matter). A mod whose Setup writes no manifest
+   (today D2R VR Unleashed) should keep `mod-id=` and its version in its plugin's resource: `ProductName "D2R PCVR"`, `ProductVersion "0.3.19"`, `Comments "mod-id=d2r-pcvr; plugin-id=d2r-pcvr-vrcam; ..."`; ours says `mod-id=d2r-vr edition=full`;
+4. otherwise the version is unknown ("installed (version unknown)"): nothing is ticked for it and nothing is claimed about updates. The built-in profile's `version` is never used for this.
+
+The manifest's own `version` stays what a launch plan carries (`VRMOD_ACTIVE_VERSION`). Versions are compared as numbers part by part (`0.3.9` < `0.3.19`, `0.169` = `0.169.0`); a `-suffix` is the same base version, so
+`0.170.0-launcher-test` is `0.170.0`, and the launcher never offers an update to a release that is older than or equal to what is installed.
 
 ## Launch contracts
 

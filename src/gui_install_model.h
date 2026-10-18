@@ -21,8 +21,17 @@ std::string FormatBytes(uint64_t bytes);
 // ---- what the main window's cards show about a release that is newer than the installed one
 // "Update available: 0.167.0 -> 0.168.0"; "" when nothing is newer. `installedVersion` "" = installed, version not known.
 std::string UpdateBadgeText(const std::string& installedVersion, const std::string& latestVersion);
-// Is `latest` newer than what is installed (an installed mod whose version is unknown counts as older). False for a release the server calls up to date.
+// Is `latest` newer than what is installed (an installed mod whose version is unknown counts as older). False for a release the server calls up to date, and
+// never true for an older or the same release: versions are compared as numbers, a suffix ("-launcher-test", "-modlayout-candidate") is the same base version.
 bool IsUpdateFor(const std::string& installedVersion, const Release& latest);
+
+// What an installed version stands to the newest release: the install view's rule for ticking, labelling and the Newest line.
+//   Unknown  installed, but its version could not be found out: nothing is proven either way
+//   Older    the newest release is newer than what is installed (a real update)
+//   Same     what is installed is the newest (or the source says nothing newer exists)
+//   Newer    what is installed is newer than the newest release the source names (never offered as an update: that would be a downgrade)
+enum class Standing { Unknown, Older, Same, Newer };
+Standing StandingOf(const std::string& installedVersion, const Release& latest);
 
 enum class CheckState { NotAsked, Checking, Done, Failed };
 
@@ -42,12 +51,18 @@ struct InstallRow {
     std::string state;              // the mark on the right during and after a run: "Waiting", "Downloading 12.3 of 47.0 MB", "Installed 0.168.0", "Failed"
     Tone state_tone = Tone::Normal;
     bool checked = false;
-    bool enabled = true;
+    bool enabled = true;            // the check box: off for a piece that is up to date (nothing to do) and without a game folder
+    // The row's own buttons, beside its Installed / Newest lines.
+    std::string action;             // "Install" (not installed), "Update" (newer, or version unknown), "Repair" (D2RLoader's files differ), a greyed "Up to date"; "" = no button
+    bool action_enabled = false;    // false for "Up to date", while the answers are still coming, while it runs and while the game runs
+    std::string uninstall;          // "Uninstall" on an installed D2R VR Authentic / Unleashed row, else ""; never on D2RLoader (shared by every mod, nothing safe to restore)
+    bool uninstall_enabled = false; // on unless an install is running; a running game is the press's refusal ("Save & Exit in the game first"), not a grey button
 };
 
 struct StartState {
     bool can = false;
     std::string reason;             // shown by the button when !can
+    bool calm = false;              // !can, but nothing is wrong: everything is up to date (the window shows it as plain good news, not as a warning)
 };
 
 struct UnverifiedItem {
@@ -68,7 +83,9 @@ public:
     void SetGameRunning(bool running);
     void SetLoader(const LoaderStatus& st, bool hashed);
     void SetLoaderPinVersion(const std::string& v) { pin_version_ = v; }     // what "newest" says for D2RLoader ("1.3.1-beta")
-    void SetInstalled(Piece mod, bool installed, const std::string& version);     // from DiscoverMods: the folder as it is now
+    // from DiscoverMods: the folder as it is now. `version` is ModEntry::found_version ("" = installed, version not known); `from` is ModEntry::found_from
+    // ("manifest", "manifest (not valid)", "plugin"): the row says so when the version did not come from a valid manifest.
+    void SetInstalled(Piece mod, bool installed, const std::string& version, const std::string& from = "");
     void SetChecking();                                                       // the question to both servers is out
     void SetUpdate(Piece mod, const UpdateInfo& u);                           // answered; u.checked false: it failed and u.error says why
     CheckState check_state(Piece mod) const { return row(mod).check; }
@@ -76,10 +93,14 @@ public:
     bool has_game() const { return game_ok_; }
 
     // ---- the ticks
-    // The card's "Install" / "Update": exactly these mods ticked (D2RLoader by its own rule), the others not.
+    // Nothing is ticked unless it is a real install or update: a missing mod, an installed mod with a PROVEN newer release, D2RLoader when it is missing or its files differ
+    // (and a mod is ticked). A mod whose version is unknown is not ticked (its button says Update); one that is current, or newer than the newest release, is never ticked and
+    // its box is off - to put it in again, uninstall it first.
+    // The card's "Install" / "Update" and a row's own button: exactly these pieces ticked (D2RLoader by its own rule when a mod is ticked), the others not.
     void TickOnly(const std::vector<Piece>& pieces);
     void Select(Piece p, bool on);                                            // the player's click on a box
     bool IsChecked(Piece p) const { return row(p).checked; }
+    bool IsUpToDate(Piece p) const;                                           // proven current (or newer than the newest release); D2RLoader: the reviewed files are there
 
     // ---- what to show
     std::vector<InstallRow> Rows() const;
@@ -121,7 +142,7 @@ private:
         Piece piece = Piece::Loader;
         bool checked = false, touched = false;
         bool installed = false;
-        std::string installed_version;
+        std::string installed_version, installed_from;
         CheckState check = CheckState::NotAsked;
         UpdateInfo upd;
         std::string state;
@@ -132,16 +153,21 @@ private:
     const RowData& row(Piece p) const { return rows_[static_cast<size_t>(p)]; }
     bool NeedsLoader() const;
     bool LoaderMissing() const { return game_ok_ && !loader_.present; }
+    bool LoaderReviewed() const { return game_ok_ && loader_.present && loader_hashed_ && loader_.reviewed; }
     bool AnyModTicked() const;
     bool WantsByDefault(Piece mod) const;
-    bool Outdated(Piece mod) const;
-    bool Current(Piece mod) const;
+    bool Outdated(Piece mod) const;                 // the newest release is PROVEN newer than the installed version
+    bool UnknownVersion(Piece mod) const;           // installed, answered, and the installed version could not be read
+    bool Current(Piece mod) const;                  // installed and the newest release is not newer (the same, or older than what is installed)
+    bool Selectable(Piece p) const;                 // the box may be ticked: there is something to install or fix
+    bool NothingToDo() const;                       // every piece is up to date (the answers are in)
     void Recompute();
     std::string ModsTicked() const;
 
     RowData rows_[kPieceCount];
     fs::path game_;
     bool game_ok_ = false, game_running_ = false;
+    bool dropped_ = false;                          // a box the player (or a card) ticked was unticked because the answer says it is up to date
     LoaderStatus loader_;
     bool loader_hashed_ = false;
     std::string pin_version_ = "1.3.1-beta";

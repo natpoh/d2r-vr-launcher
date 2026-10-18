@@ -46,6 +46,16 @@ bool IsUpdateFor(const std::string& installedVersion, const Release& latest) {
     return installedVersion.empty() || IsNewer(latest.version, installedVersion);
 }
 
+Standing StandingOf(const std::string& installedVersion, const Release& latest) {
+    const std::string have = NormalizeVersion(installedVersion);
+    if (have.empty()) return latest.up_to_date ? Standing::Same : Standing::Unknown;
+    // the newest version the source named: Authentic's answer to "anything newer than v?" is "0.0.0" (named none) or, when the site is behind, its own older number
+    const std::string named = !latest.announced.empty() ? latest.announced : latest.version;
+    if (latest.up_to_date || NormalizeVersion(latest.version).empty()) return !named.empty() && IsNewer(have, named) ? Standing::Newer : Standing::Same;
+    if (IsNewer(latest.version, have)) return Standing::Older;
+    return IsNewer(have, latest.version) ? Standing::Newer : Standing::Same;
+}
+
 std::string UpdateBadgeText(const std::string& installedVersion, const std::string& latestVersion) {
     if (latestVersion.empty()) return "";
     if (installedVersion.empty()) return "Update available: " + latestVersion;
@@ -72,10 +82,11 @@ void InstallModel::SetLoader(const LoaderStatus& st, bool hashed) {
     Recompute();
 }
 
-void InstallModel::SetInstalled(Piece mod, bool installed, const std::string& version) {
+void InstallModel::SetInstalled(Piece mod, bool installed, const std::string& version, const std::string& from) {
     if (!IsMod(mod)) return;
     row(mod).installed = installed;
     row(mod).installed_version = installed ? NormalizeVersion(version) : "";
+    row(mod).installed_from = installed && !row(mod).installed_version.empty() ? from : "";
     Recompute();
 }
 
@@ -113,30 +124,65 @@ bool InstallModel::AnyModTicked() const { return row(Piece::Authentic).checked |
 
 bool InstallModel::Outdated(Piece mod) const {
     const RowData& d = row(mod);
-    return d.check == CheckState::Done && d.installed && IsUpdateFor(d.installed_version, d.upd.latest);
+    return d.check == CheckState::Done && d.installed && StandingOf(d.installed_version, d.upd.latest) == Standing::Older;
+}
+
+bool InstallModel::UnknownVersion(Piece mod) const {
+    const RowData& d = row(mod);
+    return d.check == CheckState::Done && d.installed && StandingOf(d.installed_version, d.upd.latest) == Standing::Unknown;
 }
 
 bool InstallModel::Current(Piece mod) const {
     const RowData& d = row(mod);
-    return d.check == CheckState::Done && d.installed && !Outdated(mod);
+    if (d.check != CheckState::Done || !d.installed) return false;
+    const Standing s = StandingOf(d.installed_version, d.upd.latest);
+    return s == Standing::Same || s == Standing::Newer;
+}
+
+bool InstallModel::IsUpToDate(Piece p) const {
+    if (p == Piece::Loader) return LoaderReviewed();
+    return Current(p);
+}
+
+bool InstallModel::Selectable(Piece p) const {
+    if (!game_ok_) return false;
+    if (p == Piece::Loader) return !loader_.present || (loader_hashed_ && !loader_.reviewed);       // present and not hashed yet: wait for what the files say
+    return !Current(p);
+}
+
+bool InstallModel::NothingToDo() const {
+    if (!game_ok_ || !AllChecksFinished()) return false;
+    for (Piece p : {Piece::Loader, Piece::Authentic, Piece::Unleashed})
+        if (!IsUpToDate(p)) return false;
+    return true;
 }
 
 bool InstallModel::WantsByDefault(Piece mod) const {
     const RowData& d = row(mod);
     if (!game_ok_ || d.check != CheckState::Done) return false;
     if (!d.installed) return !d.upd.latest.up_to_date && !d.upd.latest.url.empty();
-    return Outdated(mod);
+    return Outdated(mod);                           // an unknown version is not proof of anything: not ticked, the row's Update button is the way
 }
 
 void InstallModel::Recompute() {
-    // a box the player has not touched follows the facts; one he has touched stays as he left it
-    for (Piece m : {Piece::Authentic, Piece::Unleashed})
+    // a box the player has not touched follows the facts; one he has touched stays as he left it - except that a piece which is up to date is never ticked
+    for (Piece m : {Piece::Authentic, Piece::Unleashed}) {
         if (!row(m).touched) row(m).checked = WantsByDefault(m);
+        if (row(m).checked && Current(m)) {
+            row(m).checked = false;
+            dropped_ = true;
+        }
+    }
     RowData& l = row(Piece::Loader);
     if (!l.touched) l.checked = NeedsLoader() && AnyModTicked();
+    if (l.checked && LoaderReviewed()) {
+        l.checked = false;
+        dropped_ = true;
+    }
 }
 
 void InstallModel::TickOnly(const std::vector<Piece>& pieces) {
+    dropped_ = false;
     for (Piece m : {Piece::Authentic, Piece::Unleashed}) {
         row(m).touched = true;
         row(m).checked = std::find(pieces.begin(), pieces.end(), m) != pieces.end();
@@ -149,6 +195,11 @@ void InstallModel::TickOnly(const std::vector<Piece>& pieces) {
 
 void InstallModel::Select(Piece p, bool on) {
     if (running_) return;
+    dropped_ = false;
+    if (on && !Selectable(p)) {                     // nothing to install: the box is off, a click (or a program) cannot tick it
+        row(p).checked = false;
+        return;
+    }
     row(p).touched = true;
     row(p).checked = on;
     Recompute();
@@ -168,6 +219,8 @@ std::string InstallModel::ModsTicked() const {
 
 std::vector<InstallRow> InstallModel::Rows() const {
     std::vector<InstallRow> out;
+    // a row's own button starts an install: not while one runs, not while the game runs (Install selected says why in the notice)
+    const bool can_act = game_ok_ && !running_ && !game_running_;
     for (int i = 0; i < kPieceCount; ++i) {
         const Piece p = static_cast<Piece>(i);
         const RowData& d = row(p);
@@ -175,7 +228,7 @@ std::vector<InstallRow> InstallModel::Rows() const {
         r.piece = p;
         r.name = PieceName(p);
         r.checked = d.checked;
-        r.enabled = game_ok_;                                  // while it runs the boxes keep their look; a click is ignored (Select)
+        r.enabled = Selectable(p);                             // off without a game folder and for what is up to date; while it runs the boxes keep their look, a click is ignored (Select)
         r.state = d.state;
         r.state_tone = d.state_tone;
         const PieceOutcome* oc = nullptr;
@@ -188,14 +241,20 @@ std::vector<InstallRow> InstallModel::Rows() const {
             } else if (!loader_.present) {
                 r.installed = "missing";
                 r.installed_tone = Tone::Warn;
+                r.action = "Install";
+                r.action_enabled = can_act;
             } else if (!loader_hashed_) {
                 r.installed = "found, checking its files...";
+                r.action = "Checking...";
             } else if (loader_.reviewed) {
                 r.installed = "reviewed " + (loader_.version.empty() ? pin_version_ : loader_.version) + " files";
                 r.installed_tone = Tone::Ok;
+                r.action = "Up to date";
             } else {
                 r.installed = "files differ";
                 r.installed_tone = Tone::Warn;
+                r.action = "Repair";                           // puts the reviewed files in; the ones it replaces are backed up first
+                r.action_enabled = can_act;
             }
             r.latest = pin_version_ + " (pinned)";
             r.source = "d2rloader.net, hash pinned in the launcher";
@@ -208,19 +267,24 @@ std::vector<InstallRow> InstallModel::Rows() const {
             } else if (!d.checked && LoaderMissing() && AnyModTicked()) {
                 r.note = "Without D2RLoader the mods cannot be started.";
                 r.note_tone = Tone::Warn;
-            } else if (d.checked && game_ok_ && loader_hashed_ && loader_.reviewed) {
-                r.note = "The reviewed files are already there: nothing will be downloaded.";
+            } else if (!d.checked && game_ok_ && loader_.present && loader_hashed_ && !loader_.reviewed) {
+                r.note = "The files here are not the reviewed ones. Repair puts the reviewed ones in (your own files are backed up first).";
             }
         } else {
+            const Release& L = d.upd.latest;
+            const Standing st = d.installed ? StandingOf(d.installed_version, L) : Standing::Older;
             if (!game_ok_) {
                 r.installed = "-";
             } else if (!d.installed) {
                 r.installed = "not installed";
+            } else if (d.installed_version.empty()) {
+                r.installed = "installed (version unknown)";
             } else {
-                r.installed = d.installed_version.empty() ? "installed (version unknown)" : d.installed_version;
+                r.installed = d.installed_version;
+                if (d.installed_from == "plugin") r.installed += " (from its plugin)";
+                else if (d.installed_from == "manifest (not valid)") r.installed += " (manifest not valid)";
                 r.installed_tone = Tone::Ok;
             }
-            const Release& L = d.upd.latest;
             switch (d.check) {
                 case CheckState::NotAsked: r.latest = "-"; break;
                 case CheckState::Checking: r.latest = "checking..."; break;
@@ -229,14 +293,16 @@ std::vector<InstallRow> InstallModel::Rows() const {
                     r.latest_tone = Tone::Warn;
                     break;
                 case CheckState::Done:
-                    if (Outdated(p) || !d.installed) {
-                        r.latest = L.version + (L.prerelease ? " (pre-release)" : "");
-                    } else if (L.version.empty() || L.up_to_date) {
-                        r.latest = "you have the newest version";
+                    if (st == Standing::Newer) {
+                        // the site's newest is older than what is installed: never offered, said in plain words
+                        const std::string named = !L.announced.empty() ? L.announced : L.version;
+                        r.latest = (named.empty() ? std::string() : named + " - ") + "you have a newer version";
+                        r.latest_tone = Tone::Ok;
+                    } else if (st == Standing::Same) {
+                        r.latest = L.version.empty() || L.up_to_date ? std::string("you have the newest version") : L.version + " - you have the newest version";
                         r.latest_tone = Tone::Ok;
                     } else {
-                        r.latest = L.version + " - you have the newest version";
-                        r.latest_tone = Tone::Ok;
+                        r.latest = L.version + (L.prerelease ? " (pre-release)" : "");
                     }
                     break;
             }
@@ -252,18 +318,38 @@ std::vector<InstallRow> InstallModel::Rows() const {
                 else r.source += ", SHA-256 from GitHub";
                 r.how = "Its own Setup opens in a window and installs for you only: no administrator prompt.";
             }
+            // the row's own buttons
+            if (game_ok_) {
+                if (d.check != CheckState::Done) {
+                    r.action = d.installed ? (d.check == CheckState::Failed ? "Update" : "Checking...") : "Install";     // not usable until the answer is in
+                } else if (!d.installed) {
+                    r.action = "Install";
+                    r.action_enabled = can_act && !L.url.empty();
+                } else if (Current(p)) {
+                    r.action = "Up to date";
+                } else {
+                    r.action = "Update";                       // a proven newer release, or a version that could not be read
+                    r.action_enabled = can_act && !L.url.empty();
+                }
+                if (d.installed) {
+                    r.uninstall = "Uninstall";
+                    r.uninstall_enabled = !running_;
+                }
+            }
             if (d.checked) {
                 if (d.check == CheckState::Failed) {
                     r.note = "The newest version could not be found out: press Check again first.";
                     r.note_tone = Tone::Warn;
                 } else if (d.check == CheckState::Checking) {
                     r.note = "Waiting for the answer about the newest version...";
-                } else if (Current(p)) {
-                    r.note = "You have the newest version: ticking it installs it again (a repair).";
                 } else if (known && L.sha256.empty()) {
                     r.note = "No published checksum: you will be asked before anything is downloaded.";
                     r.note_tone = Tone::Warn;
                 }
+            }
+            if (r.note.empty() && UnknownVersion(p)) {
+                r.note = "Its version could not be read, so it is not ticked. Update runs the Setup of " + L.version + " over it.";
+                r.note_tone = Tone::Warn;
             }
         }
         if (oc && (oc->status == JobStatus::Failed || oc->status == JobStatus::Cancelled || oc->status == JobStatus::NotRun)) {
@@ -290,7 +376,19 @@ StartState InstallModel::CanStart() const {
         return s;
     }
     if (!row(Piece::Loader).checked && !AnyModTicked()) {
-        s.reason = AllChecksFinished() ? "Tick what you want to install." : "Still finding out what is installed and what is newest...";
+        // (a ticked box is always a real install, update or fix: what is up to date cannot be ticked)
+        if (!AllChecksFinished()) {
+            s.reason = "Still finding out what is installed and what is newest...";
+        } else if (dropped_ || NothingToDo()) {
+            s.reason = dropped_ ? "Nothing to install: everything you ticked is up to date." : "Nothing to install: everything is up to date.";
+            s.calm = true;
+        } else {
+            s.reason = "Tick what you want to install.";
+        }
+        return s;
+    }
+    if (row(Piece::Loader).checked && loader_.present && !loader_hashed_) {
+        s.reason = "Still looking at D2RLoader's files...";
         return s;
     }
     for (Piece m : {Piece::Authentic, Piece::Unleashed}) {
@@ -323,7 +421,7 @@ std::vector<PieceJob> InstallModel::Jobs(bool acceptUnverified) const {
                 j.has_release = true;
                 j.release = L;
             }
-            j.force = Current(p);
+            j.force = false;                           // what is up to date is never ticked: to put it in again, uninstall it first
             j.accept_unverified = acceptUnverified && L.sha256.empty();
         }
         jobs.push_back(j);

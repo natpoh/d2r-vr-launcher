@@ -17,6 +17,8 @@ convenience: the player ends up with it installed and the mod listed.
    The launcher is installed when `Version` is there and the exe exists. (Per user: read HKCU of the user who started Setup - with Inno, `runasoriginaluser` / the original user's hive;
    an administrator-only Setup that runs as another account must not look in its own hive.)
 2. **Compare.** Dotted numbers, up to four parts, missing parts are 0 (`0.2.0` = `0.2.0.0`). Install the carried launcher only when it is **missing or older** than the carried one. Never downgrade.
+   **A launcher build with the same version number is never replaced** - an installed 0.3.0 stays when a different build also called 0.3.0 is carried. So a launcher that changed needs a **new version number**
+   (the build of 2026-10-18 that rejected a newer manifest and offered a downgrade stayed on a player's machine for exactly this reason; the fix ships as 0.3.1).
 3. **Install silently**, as the original user (a per-user program in the user's profile):
    `D2R_VR_Launcher_Setup_<version>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS=`
    (`/TASKS=` = no desktop shortcut; the Start menu shortcut stays). The launcher's Setup itself stops without changing anything when a newer launcher is installed (exit code 1, no files touched) and

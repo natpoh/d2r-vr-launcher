@@ -7,6 +7,12 @@
 //   FAKE_SETUP_MODE      "install" (default): write the mod; "nothing": exit without writing (a Setup that installed somewhere else)
 //   FAKE_SETUP_EXIT      the exit code (default 0; Inno Setup uses 5 for "cancelled")
 //   FAKE_SETUP_DELAY_MS  wait this long before it ends (a Setup wizard that is open for a while)
+// Copied to a file named unins000.exe it is a stand-in for a mod's own UNINSTALLER instead (D2R VR Authentic's in the game folder, D2R VR Unleashed's in
+// ...\Programs\D2R PCVR; the mod is told by the folder it sits in: "D2R PCVR" = D2R-PCVR, else D2R-VR):
+//   FAKE_UNINSTALL_LOG       file the arguments are appended to ("uninstaller started args=N", "uninstaller mod=...", "uninstaller removed" / "uninstaller kept"); default FAKE_SETUP_LOG
+//   FAKE_UNINSTALL_MODE      "remove" (default): delete <FAKE_SETUP_GAME>\mods\<mod>; "keep": exit without removing (the player answered No in its own question)
+//   FAKE_UNINSTALL_EXIT      the exit code (default 0)
+//   FAKE_UNINSTALL_DELAY_MS  wait this long before it removes anything (its wizard is open for a while)
 // The three after MOD may be given per mod, with the mod's name and '_' for '-' as a suffix, and then win over the plain one: FAKE_SETUP_MANIFEST_D2R_VR,
 // FAKE_SETUP_MODE_D2R_PCVR, FAKE_SETUP_EXIT_D2R_VR ... (one environment serves a run that installs both mods).
 #include <windows.h>
@@ -41,12 +47,69 @@ std::wstring Upper(std::wstring s) {
     return s;
 }
 
+void RemoveTree(const std::wstring& dir) {
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            const std::wstring name = fd.cFileName;
+            if (name == L"." || name == L"..") continue;
+            const std::wstring path = dir + L"\\" + name;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                RemoveTree(path);
+            } else {
+                SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_NORMAL);
+                DeleteFileW(path.c_str());
+            }
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    RemoveDirectoryW(dir.c_str());
+}
+
+// unins000.exe: the stand-in uninstaller
+int Uninstall(const std::wstring& self, int argc, wchar_t** argv) {
+    const size_t slash = self.find_last_of(L"\\/");
+    const std::wstring parent = slash == std::wstring::npos ? std::wstring() : self.substr(0, slash);
+    const size_t pslash = parent.find_last_of(L"\\/");
+    const std::wstring folder = Upper(pslash == std::wstring::npos ? parent : parent.substr(pslash + 1));
+    const std::wstring mod = folder == L"D2R PCVR" ? L"D2R-PCVR" : L"D2R-VR";
+    std::wstring logPath = Env(L"FAKE_UNINSTALL_LOG");
+    if (logPath.empty()) logPath = Env(L"FAKE_SETUP_LOG");
+    const std::wstring game = Env(L"FAKE_SETUP_GAME"), mode = Env(L"FAKE_UNINSTALL_MODE");
+    auto log = [&](const std::string& line) {
+        if (logPath.empty()) return;
+        FILE* f = nullptr;
+        if (_wfopen_s(&f, logPath.c_str(), L"ab") == 0 && f) {
+            fprintf(f, "%s\n", line.c_str());
+            fclose(f);
+        }
+    };
+    log("uninstaller started args=" + std::to_string(argc - 1));
+    for (int i = 1; i < argc; ++i) log("uninstaller arg" + std::to_string(i) + "=" + Utf8(argv[i]));
+    log("uninstaller mod=" + Utf8(mod));
+    const std::wstring delay = Env(L"FAKE_UNINSTALL_DELAY_MS");
+    if (!delay.empty()) Sleep(static_cast<DWORD>(_wtoi(delay.c_str())));
+    if (mode != L"keep" && !game.empty()) {
+        RemoveTree(game + L"\\mods\\" + mod);
+        log("uninstaller removed");
+    } else {
+        log("uninstaller kept");
+    }
+    const std::wstring code = Env(L"FAKE_UNINSTALL_EXIT");
+    return code.empty() ? 0 : _wtoi(code.c_str());
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
     wchar_t self[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, self, MAX_PATH);
     const std::wstring exe = Upper(std::wstring(self));
+    {
+        const size_t sl = exe.find_last_of(L"\\/");
+        if ((sl == std::wstring::npos ? exe : exe.substr(sl + 1)) == L"UNINS000.EXE") return Uninstall(std::wstring(self), argc, argv);
+    }
     std::wstring mod = Env(L"FAKE_SETUP_MOD");
     if (mod.empty()) {
         const size_t slash = exe.find_last_of(L"\\/");

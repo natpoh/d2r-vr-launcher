@@ -205,6 +205,8 @@ int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
                 o.set("folder", Json::String(e.folder));
                 o.set("name", Json::String(e.name));
                 o.set("version", Json::String(e.version));
+                o.set("installed_version", Json::String(e.found_version));            // what is installed ("" = not known): manifest, a manifest that does not validate, or the mod's plugin
+                o.set("installed_version_from", Json::String(e.found_from));
                 o.set("installed", Json::Bool(e.installed));
                 o.set("source", Json::String(e.source));
                 o.set("launchable", Json::Bool(e.launchable));
@@ -230,7 +232,9 @@ int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
             out << "game   " << U(game) << "  (" << (gi.store.empty() ? "store unknown" : gi.store) << ", build " << (gi.build.empty() ? "unknown" : gi.build) << ")\n";
             out << "loader " << (loader.present ? (loader.reviewed ? "D2RLoader " + loader.version + " (reviewed files)" : std::string("D2RLoader present, files not the reviewed 1.3.1-beta ones")) : std::string("D2RLoader.exe is missing")) << "\n";
             for (const ModEntry& e : mods) {
-                out << (e.installed ? "* " : "  ") << e.id << "  " << e.name << "  " << (e.version.empty() ? "" : e.version + "  ") << "["
+                // an installed mod shows the version found in its folder (never the built-in profile's), and where it was read from when that is not its manifest
+                std::string have = e.installed ? (e.found_version.empty() ? "version unknown  " : e.found_version + (e.found_from == "manifest" ? "" : " (" + e.found_from + ")") + "  ") : "";
+                out << (e.installed ? "* " : "  ") << e.id << "  " << e.name << "  " << have << "["
                     << (e.installed ? "installed, " : "not installed, ") << e.source << "]\n";
                 for (const std::string& n : e.notes) out << "    note: " << n << "\n";
             }

@@ -41,6 +41,7 @@ using std::min;
 #include "gui_draw.h"
 #include "gui_install_model.h"
 #include "gui_install_view.h"
+#include "gui_uninstall.h"
 #include "gui_window.h"
 #include "install_run.h"
 #include "resource.h"
@@ -430,7 +431,8 @@ bool Window::Init() {
     AppendLog("Launcher folder: " + DisplayPath(model_.home()) + (model_.first_run() ? "  (first start: nothing is remembered yet)" : ""));
     if (model_.game()) AppendLog("Game folder: " + DisplayPath(model_.game()->install.dir));
     for (const ModEntry& m : model_.mods())
-        AppendLog("Mod: " + m.name + (m.installed ? (m.source == "plain" ? "" : " " + m.version) + " (installed" + (m.source == "built-in" ? "" : ", " + m.source) + ")" : " (not installed)"));
+        AppendLog("Mod: " + m.name + (m.installed ? (m.found_version.empty() ? (m.known ? std::string(", version not known") : std::string()) : " " + m.found_version + (m.found_from == "manifest" ? "" : m.found_from == "plugin" ? " (from its plugin)" : " (from its manifest, which is not valid)")) +
+                                                        " (installed" + (m.source == "built-in" ? "" : ", " + m.source) + ")" : " (not installed)"));
     for (const std::string& n : model_.startup_notes()) AppendLog("warning: " + n);
     if (!model_.startup_notes().empty()) Say(Tone::Warn, model_.startup_notes().front(), false);
     else SayReady();
@@ -725,7 +727,9 @@ void Window::RebuildCards() {
         c.installed = m.installed;
         c.name = W(m.name);
         c.description = W(m.description);
-        if (m.installed && !(m.source == "plain" && m.version == "0.0.0")) c.meta_text = L"Version " + W(m.version);
+        // what is installed: the version found in the mod's folder (its manifest, else its plugin), never the built-in profile's
+        if (m.installed && !m.found_version.empty()) c.meta_text = L"Version " + W(m.found_version);
+        else if (m.installed && m.known) c.meta_text = L"Version not known";
         if (!m.publisher.empty()) c.meta_text += (c.meta_text.empty() ? L"by " : L"  -  by ") + W(m.publisher);
         if (!m.notes.empty()) c.note_text = W(m.notes.front());
         if (m.id == "d2r-vr" && authentic_icon_) {
@@ -749,7 +753,7 @@ void Window::RebuildCards() {
         c.uninstall_label = W(model_.UninstallFor(m).label);
         PieceOfModId(m.id, &c.piece);
         c.tip = c.name;
-        if (m.installed && !m.version.empty()) c.tip += L" " + W(m.version);
+        if (m.installed && !m.found_version.empty()) c.tip += L" " + W(m.found_version);
         if (!m.publisher.empty()) c.tip += L"\nby " + W(m.publisher);
         c.tip += L"\n" + W(DisplayPath(m.dir));
         for (const std::string& n : m.notes) c.tip += L"\n" + W(n);
@@ -1528,46 +1532,15 @@ void Window::OnCardUninstall(int index) {
         MessageBoxW(hwnd_, W(o.explanation).c_str(), (L"Uninstall " + W(m.name)).c_str(), MB_OK | MB_ICONINFORMATION);
         return;
     }
-    const std::wstring ask = L"Uninstall " + W(m.name) + L"?\n\nThis runs the mod's own uninstaller:\n" + W(DisplayPath(o.exe)) +
-                             L"\n\nIt may ask its own questions. The game itself and the other mods are not touched.";
+    const std::wstring ask = W(UninstallQuestion(m, o));
     if (MessageBoxW(hwnd_, ask.c_str(), (L"Uninstall " + W(m.name)).c_str(), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return;
-    std::wstring params;
-    for (const std::string& a : o.args) params += (params.empty() ? L"" : L" ") + W(a);
-    SHELLEXECUTEINFOW sei{};
-    sei.cbSize = sizeof sei;
-    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
-    sei.hwnd = hwnd_;
-    sei.lpVerb = o.needs_admin ? L"runas" : L"open";      // the uninstaller of a program in Program Files asks Windows for rights itself
-    const std::wstring exe = WPath(o.exe);
-    sei.lpFile = exe.c_str();
-    sei.lpParameters = params.empty() ? nullptr : params.c_str();
-    const std::wstring dir = WPath(o.exe.parent_path());
-    sei.lpDirectory = dir.c_str();
-    sei.nShow = SW_SHOWNORMAL;
-    if (!ShellExecuteExW(&sei)) {
-        Say(Tone::Error, GetLastError() == ERROR_CANCELLED ? "The uninstaller was cancelled." : "Could not start the uninstaller.");
+    // when the uninstaller ends the disk is looked at again: the mod is gone from the list
+    bool declined = false;
+    if (!StartUninstaller(hwnd_, o, hwnd_, WM_APP_REFRESH, &declined)) {
+        Say(Tone::Error, declined ? "The uninstaller was cancelled." : "Could not start the uninstaller.");
         return;
     }
     AppendLog("Running the uninstaller of " + m.name + ": " + DisplayPath(o.exe));
-    if (sei.hProcess) {
-        const HWND target = hwnd_;
-        const HANDLE process = sei.hProcess;
-        // when it ends, look at the disk again: the mod is gone from the list
-        struct Wait {
-            HWND target;
-            HANDLE process;
-        };
-        auto* job = new Wait{target, process};
-        HANDLE th = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
-            std::unique_ptr<Wait> w(static_cast<Wait*>(p));
-            WaitForSingleObject(w->process, INFINITE);
-            CloseHandle(w->process);
-            PostMessageW(w->target, WM_APP_REFRESH, 0, 0);
-            return 0;
-        }, job, 0, nullptr);
-        if (th) CloseHandle(th);
-        else delete job;
-    }
 }
 
 void Window::DoAbout() {

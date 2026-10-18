@@ -7,9 +7,13 @@
 #include <windows.h>
 #endif
 
+#include <functional>
+
 #include "mods.h"
+#include "releases.h"
 #include "sandbox.h"
 #include "test.h"
+#include "versioninfo.h"
 
 using namespace vrml;
 
@@ -561,5 +565,203 @@ TEST(a_refusal_has_an_exit_code) {
     CHECK_EQ(StartExitCode("E_GAME"), 25);
     CHECK_EQ(StartExitCode("E_IO"), 20);
 }
+
+// ================================================================== which version is installed (found_version): manifest, a manifest that does not validate, the plugin's version resource
+
+namespace {
+
+#ifdef VRML_FAKE_PLUGIN_DIR
+// A stand-in plugin (tests/tools/fake_plugin.cpp + a version resource) copied to <game>\mods\<folder>\d2rloader\plugins\<as>.
+fs::path PutPlugin(const fs::path& game, const std::string& folder, const char* fake, const std::string& as) {
+    const fs::path dst = game / "mods" / folder / "d2rloader" / "plugins" / as;
+    fs::create_directories(dst.parent_path());
+    fs::copy_file(fs::path(VRML_FAKE_PLUGIN_DIR) / (std::string(fake) + ".dll"), dst, fs::copy_options::overwrite_existing);
+    return dst;
+}
+#endif
+
+// vrmod-manifest.json of a known mod at `version`; `edit` changes the parsed JSON first
+void PutManifest(const fs::path& game, const std::string& which, const std::string& folder, const std::string& version, const std::function<void(Json&)>& edit = {}) {
+    Json j = Json::Parse(ExampleText(which.c_str()));
+    j.set("version", Json::String(version));
+    if (edit) edit(j);
+    tt::Write(game / "mods" / folder / "vrmod-manifest.json", j.dump());
+}
+
+// the manifest of a mod from another schema: a field this launcher does not know (the report from the field: /settings_app/label was unknown to an earlier build)
+void UnknownField(Json& j) { j.set("not_a_field_of_this_schema", Json::Bool(true)); }
+
+}  // namespace
+
+TEST(the_installed_version_is_the_version_of_the_mods_own_valid_manifest) {
+    tt::Sandbox sb;
+    ModEntry e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK(!e.installed && e.found_version.empty() && e.found_from.empty());              // not installed: nothing
+    InstallMod(sb.game, "D2R-VR");
+    e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK(e.installed && e.source == "built-in");
+    CHECK(e.found_version.empty() && e.found_from.empty());                              // the built-in profile's version is a guess about the release shipped with the launcher
+    CHECK(!e.version.empty());                                                           // (it is still what a launch plan carries)
+    PutManifest(sb.game, "d2r-vr", "D2R-VR", "0.170.0");
+    e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK_EQ(e.source, std::string("manifest"));
+    CHECK_EQ(e.found_version, std::string("0.170.0"));
+    CHECK_EQ(e.found_from, std::string("manifest"));
+    CHECK_EQ(e.version, std::string("0.170.0"));
+    PutManifest(sb.game, "d2r-vr", "D2R-VR", "0.170.0-launcher-test");
+    e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK_EQ(e.found_version, std::string("0.170.0-launcher-test"));                     // as written; it is compared by its base version
+    CHECK_EQ(NormalizeVersion(e.found_version), std::string("0.170.0"));
+    // another D2RLoader mod with a valid manifest has it too; one without has none
+    InstallMod(sb.game, "Median-XL");
+    CHECK(Find(DiscoverMods(sb.game), "median-xl")->found_version.empty());
+}
+
+TEST(a_manifest_that_does_not_validate_still_names_the_installed_version) {
+    tt::Sandbox sb;
+    InstallMod(sb.game, "D2R-VR");
+    PutManifest(sb.game, "d2r-vr", "D2R-VR", "0.170.0", UnknownField);
+    ModEntry e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK_EQ(e.source, std::string("built-in"));                                        // the profile for the launch is still the built-in one
+    CHECK_EQ(e.found_version, std::string("0.170.0"));
+    CHECK_EQ(e.found_from, std::string("manifest (not valid)"));
+    bool noted = false;
+    for (const std::string& n : e.notes) noted = noted || n.find("not valid") != std::string::npos;
+    CHECK(noted);                                                                       // the "not valid" note stays
+    CHECK(e.version != "0.170.0");                                                      // `version` is not touched: what a launch plan carries
+    // a suffix is kept as written
+    PutManifest(sb.game, "d2r-vr", "D2R-VR", "0.169.0-modlayout-candidate", UnknownField);
+    e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK_EQ(e.found_version, std::string("0.169.0-modlayout-candidate"));
+    // the real report: settings_app.label is not known to an earlier schema
+    PutManifest(sb.game, "d2r-vr", "D2R-VR", "0.170.0", [](Json& j) {
+        Json app = Json::Object();
+        app.set("exe", Json::String("{game}/D2R_VR_Settings.exe"));
+        app.set("unheard_of", Json::String("x"));
+        j.set("settings_app", app);
+    });
+    e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK_EQ(e.found_version, std::string("0.170.0"));
+    // it must be THIS mod's manifest: Unleashed's in Authentic's folder says nothing about Authentic
+    tt::Write(sb.game / "mods" / "D2R-VR" / "vrmod-manifest.json", [&] {
+        Json j = Json::Parse(ExampleText("d2r-pcvr"));
+        j.set("version", Json::String("0.3.19"));
+        j.set("not_a_field_of_this_schema", Json::Bool(true));
+        return j.dump();
+    }());
+    e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK(e.found_version.empty() && e.found_from.empty());
+    // not JSON, or no number in the version: nothing
+    tt::Write(sb.game / "mods" / "D2R-VR" / "vrmod-manifest.json", "{ not json");
+    CHECK(Find(DiscoverMods(sb.game), "d2r-vr")->found_version.empty());
+    PutManifest(sb.game, "d2r-vr", "D2R-VR", "latest", UnknownField);
+    CHECK(Find(DiscoverMods(sb.game), "d2r-vr")->found_version.empty());
+    PutManifest(sb.game, "d2r-vr", "D2R-VR", "0.170.0", [](Json& j) {
+        UnknownField(j);
+        j.set("id", Json::String("d2r-pcvr"));
+    });
+    CHECK(Find(DiscoverMods(sb.game), "d2r-vr")->found_version.empty());                 // names another mod's id
+}
+
+#ifdef VRML_FAKE_PLUGIN_DIR
+TEST(a_version_resource_is_read_with_its_comments) {
+    // Bear's real plugin: ProductName "D2R PCVR", ProductVersion "0.3.19", Comments "mod-id=d2r-pcvr; plugin-id=d2r-pcvr-vrcam; Based on D2R VR by BodyWalkVR (MIT).", company bearstonem
+    const FileVersion v = ReadFileVersion(fs::path(VRML_FAKE_PLUGIN_DIR) / "fake_plugin_pcvr.dll");
+    CHECK(v.ok);
+    CHECK_EQ(v.product_version, std::string("0.3.19"));
+    CHECK_EQ(v.file_version, std::string("0.3.19"));
+    CHECK_EQ(v.product_name, std::string("D2R PCVR"));
+    CHECK_EQ(v.company, std::string("bearstonem"));
+    CHECK_EQ(v.comments, std::string("mod-id=d2r-pcvr; plugin-id=d2r-pcvr-vrcam; Based on D2R VR by BodyWalkVR (MIT)."));
+    CHECK(v.has_fixed && v.product_numbers[0] == 0 && v.product_numbers[1] == 3 && v.product_numbers[2] == 19 && v.product_numbers[3] == 0);
+    CHECK_EQ(CommentValue(v.comments, "mod-id"), std::string("d2r-pcvr"));
+    CHECK_EQ(CommentValue(v.comments, "plugin-id"), std::string("d2r-pcvr-vrcam"));
+    CHECK_EQ(CommentValue(v.comments, "MOD-ID"), std::string("d2r-pcvr"));              // the key is not case sensitive
+    CHECK_EQ(CommentValue(v.comments, "edition"), std::string());
+    // ours: the pairs are separated by a space
+    const FileVersion ours = ReadFileVersion(fs::path(VRML_FAKE_PLUGIN_DIR) / "fake_plugin_vr.dll");
+    CHECK(ours.ok);
+    CHECK_EQ(ours.comments, std::string("mod-id=d2r-vr edition=full"));
+    CHECK_EQ(CommentValue(ours.comments, "mod-id"), std::string("d2r-vr"));
+    CHECK_EQ(CommentValue(ours.comments, "edition"), std::string("full"));
+    CHECK_EQ(CommentTokens("a=1; b=2,c=3  d").size(), size_t(4));
+    // the id must match as a whole token: d2r-vr-extra is not d2r-vr
+    CHECK(CommentValue("mod-id=d2r-vr-extra", "mod-id") != "d2r-vr");
+    // not a PE file, a missing file, a DLL without Comments
+    tt::Sandbox sb;
+    tt::Write(sb.root / "not_a_dll.dll", "this is text");
+    CHECK(!ReadFileVersion(sb.root / "not_a_dll.dll").ok);
+    CHECK(!ReadFileVersion(sb.root / "missing.dll").ok);
+    const FileVersion plain = ReadFileVersion(fs::path(VRML_FAKE_PLUGIN_DIR) / "fake_plugin_plain.dll");
+    CHECK(plain.ok && plain.comments.empty() && plain.product_version == "1.2.3");
+}
+
+TEST(an_installed_mod_without_a_usable_manifest_takes_its_version_from_its_plugin) {
+    tt::Sandbox sb;
+    InstallMod(sb.game, "D2R-PCVR");
+    PutPlugin(sb.game, "D2R-PCVR", "fake_plugin_pcvr", "d2rl-pcvr.dll");
+    ModEntry e = *Find(DiscoverMods(sb.game), "d2r-pcvr");
+    CHECK_EQ(e.source, std::string("built-in"));
+    CHECK_EQ(e.found_version, std::string("0.3.19"));
+    CHECK_EQ(e.found_from, std::string("plugin"));
+    // an earlier build of his called the file d2rl-vrcam.dll: the mod id in the Comments is what counts, not the file name
+    fs::remove(sb.game / "mods" / "D2R-PCVR" / "d2rloader" / "plugins" / "d2rl-pcvr.dll");
+    PutPlugin(sb.game, "D2R-PCVR", "fake_plugin_pcvr", "d2rl-vrcam.dll");
+    CHECK_EQ(Find(DiscoverMods(sb.game), "d2r-pcvr")->found_version, std::string("0.3.19"));
+    // ours
+    InstallMod(sb.game, "D2R-VR");
+    PutPlugin(sb.game, "D2R-VR", "fake_plugin_vr", "d2rl-vrcam.dll");
+    e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK_EQ(e.found_version, std::string("0.170.0"));
+    CHECK_EQ(e.found_from, std::string("plugin"));
+    // a plugin that names another mod, or none, or is not a DLL at all, says nothing; neither does another mod's plugin in this folder
+    fs::remove(sb.game / "mods" / "D2R-VR" / "d2rloader" / "plugins" / "d2rl-vrcam.dll");
+    PutPlugin(sb.game, "D2R-VR", "fake_plugin_other", "other.dll");
+    PutPlugin(sb.game, "D2R-VR", "fake_plugin_plain", "plain.dll");
+    PutPlugin(sb.game, "D2R-VR", "fake_plugin_pcvr", "wrong_mod.dll");                  // Unleashed's DLL in Authentic's folder: mod-id=d2r-pcvr
+    tt::Write(sb.game / "mods" / "D2R-VR" / "d2rloader" / "plugins" / "text.dll", "text");
+    tt::Write(sb.game / "mods" / "D2R-VR" / "d2rloader" / "plugins" / "d2r_vr.ini", "[x]");
+    e = *Find(DiscoverMods(sb.game), "d2r-vr");
+    CHECK(e.found_version.empty() && e.found_from.empty());
+    // a four-part ProductVersion loses its trailing ".0"; a DLL with only the numeric version resource is read from the numbers; the newest of two wins
+    fs::remove(sb.game / "mods" / "D2R-PCVR" / "d2rloader" / "plugins" / "d2rl-vrcam.dll");
+    PutPlugin(sb.game, "D2R-PCVR", "fake_plugin_four", "four.dll");
+    CHECK_EQ(Find(DiscoverMods(sb.game), "d2r-pcvr")->found_version, std::string("0.3.20"));
+    PutPlugin(sb.game, "D2R-PCVR", "fake_plugin_numeric", "numeric.dll");
+    CHECK_EQ(Find(DiscoverMods(sb.game), "d2r-pcvr")->found_version, std::string("0.3.21"));
+    fs::remove(sb.game / "mods" / "D2R-PCVR" / "d2rloader" / "plugins" / "four.dll");
+    PutPlugin(sb.game, "D2R-PCVR", "fake_plugin_pcvr", "d2rl-pcvr.dll");
+    CHECK_EQ(Find(DiscoverMods(sb.game), "d2r-pcvr")->found_version, std::string("0.3.21"));      // 0.3.21 (numbers) beats 0.3.19
+    // not installed (no modinfo.json): a stray plugin file counts for nothing
+    tt::Sandbox empty;
+    PutPlugin(empty.game, "D2R-PCVR", "fake_plugin_pcvr", "d2rl-pcvr.dll");
+    CHECK(!Find(DiscoverMods(empty.game), "d2r-pcvr")->installed && Find(DiscoverMods(empty.game), "d2r-pcvr")->found_version.empty());
+}
+
+TEST(the_order_of_the_places_a_version_is_found) {
+    tt::Sandbox sb;
+    InstallMod(sb.game, "D2R-PCVR");
+    PutPlugin(sb.game, "D2R-PCVR", "fake_plugin_pcvr", "d2rl-pcvr.dll");                 // plugin: 0.3.19
+    // a manifest that does not validate beats the plugin
+    PutManifest(sb.game, "d2r-pcvr", "D2R-PCVR", "0.3.17", UnknownField);
+    ModEntry e = *Find(DiscoverMods(sb.game), "d2r-pcvr");
+    CHECK_EQ(e.found_version, std::string("0.3.17"));
+    CHECK_EQ(e.found_from, std::string("manifest (not valid)"));
+    // a valid manifest beats both
+    PutManifest(sb.game, "d2r-pcvr", "D2R-PCVR", "0.3.18");
+    e = *Find(DiscoverMods(sb.game), "d2r-pcvr");
+    CHECK_EQ(e.found_version, std::string("0.3.18"));
+    CHECK_EQ(e.found_from, std::string("manifest"));
+    // ... and when the manifest goes, the plugin is left
+    fs::remove(sb.game / "mods" / "D2R-PCVR" / "vrmod-manifest.json");
+    e = *Find(DiscoverMods(sb.game), "d2r-pcvr");
+    CHECK_EQ(e.found_version, std::string("0.3.19"));
+    CHECK_EQ(e.found_from, std::string("plugin"));
+    // and nothing: unknown
+    fs::remove(sb.game / "mods" / "D2R-PCVR" / "d2rloader" / "plugins" / "d2rl-pcvr.dll");
+    e = *Find(DiscoverMods(sb.game), "d2r-pcvr");
+    CHECK(e.installed && e.found_version.empty() && e.found_from.empty());
+}
+#endif
 
 TEST_MAIN()

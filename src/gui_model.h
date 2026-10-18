@@ -176,6 +176,9 @@ private:
     Logger log_;
 };
 
+// The question asked before a mod's own uninstaller is run (the cards' Uninstall button and the install view's row ask the same): it names the mod and the uninstaller.
+std::string UninstallQuestion(const ModEntry& m, const Model::UninstallOffer& o);
+
 // The text a headless `--play` prints (and the window logs): warnings, then the refusal / the plan / "started ...". `exit_code` gets the
 // process exit code.
 std::string FormatOutcome(const StartOutcome& so, bool dry_run, int* exit_code);

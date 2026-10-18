@@ -27,6 +27,7 @@ using std::min;
 #include "gui_draw.h"
 #include "gui_install_model.h"
 #include "gui_install_view.h"
+#include "gui_uninstall.h"
 #include "install_run.h"
 #include "resource.h"
 
@@ -74,15 +75,18 @@ COLORREF ToneColor(Tone t, COLORREF normal = kText) {
 // sizes in dp (1/96 inch)
 constexpr int kHeaderH = 62;
 constexpr int kMargin = 16;
-constexpr int kMinClientW = 560;
+constexpr int kMinClientW = 600;
 constexpr int kMinClientH = 640;
-constexpr int kDefaultClientW = 640;
+constexpr int kDefaultClientW = 720;
 constexpr int kDefaultClientH = 700;
+constexpr int kRowButtonW = 108;       // each row's own buttons (Install / Update / Repair / Up to date and Uninstall), on the right of its card
 constexpr int kLogMinH = 56;
 
 enum : int {
     IDC_V_ROWS = 210, IDC_V_NOTICE, IDC_V_STEP, IDC_V_PROGRESS, IDC_V_LOG, IDC_V_CHECK, IDC_V_INSTALL,
     IDC_V_ROWCHECK = 1100,        // + the piece's number
+    IDC_V_ROWACT = 1200,          // + the piece's number: the row's own Install / Update / Repair / Up to date button
+    IDC_V_ROWUN = 1300,           // + the piece's number: the row's Uninstall button (an installed D2R VR Authentic / Unleashed)
 };
 // Close is IDCANCEL: Esc in a dialog-like window presses it
 constexpr UINT WM_V_FACTS = WM_APP + 20;      // lParam: FactsMsg*
@@ -93,6 +97,7 @@ constexpr UINT WM_V_PIECE = WM_APP + 24;      // PieceOutcome*
 constexpr UINT WM_V_RUNDONE = WM_APP + 25;    // the worker has finished
 constexpr UINT WM_V_SHOT = WM_APP + 26;
 constexpr UINT WM_V_AUTO = WM_APP + 27;       // --install-now
+constexpr UINT WM_V_UNINSTALLED = WM_APP + 28;   // a mod's own uninstaller has ended: look at the disk again
 constexpr UINT_PTR kTimerPoll = 1, kTimerGuard = 2, kTimerShot = 3;
 constexpr UINT kPollMs = 1500;
 
@@ -221,7 +226,7 @@ DWORD WINAPI RunThread(LPVOID p) {
 // ------------------------------------------------------------------ the view
 
 struct RowGeo {
-    RECT card{}, check{}, state{}, installed{}, latest{}, source{}, how{}, note{};
+    RECT card{}, check{}, state{}, installed{}, latest{}, source{}, how{}, note{}, action{}, uninstall{};
 };
 
 class View {
@@ -271,6 +276,11 @@ private:
     void OnFacts(FactsMsg* m);
     void OnUpdate(UpdateMsg* m);
     void OnRowCheck(int piece);
+    void OnRowAction(int piece);          // the row's own Install / Update / Repair: ticks only that piece and installs at once, the same path as Install selected
+    void OnRowUninstall(int piece);       // the row's Uninstall: the mod's own uninstaller (never a folder deleted here)
+    void OnUninstalled();
+    const ModEntry* EntryOf(Piece p) const;
+    void SetRowButton(HWND h, std::wstring* shown, const std::string& label, bool enabled);
     void OnInstall();
     void StartRun(std::vector<PieceJob> jobs);
     void OnStage(StageMsg* m);
@@ -299,6 +309,12 @@ private:
     HBRUSH bg_brush_ = nullptr, white_brush_ = nullptr, sel_brush_ = nullptr;
     HWND rows_wnd_ = nullptr, st_notice_ = nullptr, st_step_ = nullptr, progress_ = nullptr, edt_log_ = nullptr, btn_check_ = nullptr, btn_install_ = nullptr, btn_close_ = nullptr;
     HWND check_[kPieceCount] = {};
+    HWND action_[kPieceCount] = {}, unins_[kPieceCount] = {};
+    std::wstring action_shown_[kPieceCount], unins_shown_[kPieceCount];     // the labels the buttons carry now (a button is not touched when nothing changed: no flicker)
+    std::vector<ModEntry> mods_;                // the mods as the disk showed them at the last look (the Uninstall buttons read the uninstaller from here)
+    std::string uninstalling_;                  // a mod's own uninstaller is running: its name ("" = none)
+    Piece uninstalling_piece_ = Piece::Authentic;
+    bool await_uninstall_facts_ = false;
 
     InstallModel inst_model_;
     std::vector<InstallRow> rows_;
@@ -404,9 +420,10 @@ bool View::Init() {
     }
     // what the main window already hashed counts, unless a test pin changes what "the reviewed files" are: then this view's own check says
     inst_model_.SetLoader(model_.loader(), model_.loader_hashed() && opt_.pin_file.empty());
-    for (const ModEntry& m : model_.mods()) {
+    mods_ = model_.mods();
+    for (const ModEntry& m : mods_) {
         Piece p;
-        if (PieceOfModId(m.id, &p)) inst_model_.SetInstalled(p, m.installed, m.source == "manifest" ? m.version : "");
+        if (PieceOfModId(m.id, &p)) inst_model_.SetInstalled(p, m.installed, m.found_version, m.found_from);
     }
     inst_model_.SetGameRunning(model_.GameRunning());
     if (explicit_tick_) inst_model_.TickOnly(tick_);
@@ -465,9 +482,12 @@ void View::MakeFonts() {
 void View::CreateControls() {
     auto id = [](int i) { return reinterpret_cast<HMENU>(static_cast<INT_PTR>(i)); };
     rows_wnd_ = CreateWindowExW(WS_EX_CONTROLPARENT, kRowsClass, L"Pieces", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, 0, 0, 10, 10, hwnd_, id(IDC_V_ROWS), inst_, this);
+    // per row: the box, then its own action button, then its Uninstall button (that is the Tab order)
     for (int i = 0; i < kPieceCount; ++i) {
         DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX;
         check_[i] = CreateWindowExW(0, L"BUTTON", NoMnemonic(W(PieceName(static_cast<Piece>(i)))).c_str(), style, 0, 0, 10, 10, rows_wnd_, id(IDC_V_ROWCHECK + i), inst_, nullptr);
+        action_[i] = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 10, 10, rows_wnd_, id(IDC_V_ROWACT + i), inst_, nullptr);
+        unins_[i] = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 10, 10, rows_wnd_, id(IDC_V_ROWUN + i), inst_, nullptr);
     }
     btn_check_ = Button(IDC_V_CHECK, L"&Check again");
     btn_install_ = Button(IDC_V_INSTALL, L"&Install selected", BS_DEFPUSHBUTTON);
@@ -487,6 +507,8 @@ void View::ApplyFonts() {
     for (HWND h : {btn_check_, btn_install_, btn_close_, st_notice_, st_step_, edt_log_}) set(h, fonts_.ui);
     set(st_step_, fonts_.fine);
     for (HWND h : check_) set(h, fonts_.bold);
+    for (HWND h : action_) set(h, fonts_.ui);
+    for (HWND h : unins_) set(h, fonts_.ui);
 }
 
 // ------------------------------------------------------------------ what the controls show
@@ -522,16 +544,36 @@ void View::Sticky(Tone tone, const std::string& text) {
     sticky_tone_ = tone;
 }
 
+// A row's own button: its label (hidden when there is none) and whether it can be pressed. Touched only when something changed.
+void View::SetRowButton(HWND h, std::wstring* shown, const std::string& label, bool enabled) {
+    if (!h) return;
+    const std::wstring w = NoMnemonic(W(label));
+    if (w != *shown) {
+        *shown = w;
+        SetWindowTextW(h, w.c_str());
+        ShowWindow(h, w.empty() ? SW_HIDE : SW_SHOWNOACTIVATE);
+    }
+    const BOOL want = enabled && !w.empty() ? TRUE : FALSE;
+    if (IsWindowEnabled(h) != want) EnableWindow(h, want);
+}
+
+const ModEntry* View::EntryOf(Piece p) const {
+    for (const ModEntry& e : mods_)
+        if (e.id == PieceId(p)) return &e;
+    return nullptr;
+}
+
 std::string View::NoticeText(Tone* tone) const {
     if (tone) *tone = Tone::Normal;
     if (inst_model_.running()) return inst_model_.RunNotice(tone);
+    if (!uninstalling_.empty()) return "Waiting for the uninstaller of " + uninstalling_ + " to finish (its window may be behind this one: look for it on the taskbar).";
     if (!sticky_.empty()) {
         if (tone) *tone = sticky_tone_;
         return sticky_;
     }
     const StartState ss = inst_model_.CanStart();
     if (!ss.can) {
-        if (tone) *tone = Tone::Warn;
+        if (tone) *tone = ss.calm ? Tone::Ok : Tone::Warn;
         return ss.reason;
     }
     std::vector<std::string> names;
@@ -550,14 +592,18 @@ void View::UpdateUi() {
     for (int i = 0; i < kPieceCount; ++i) {
         const InstallRow& r = rows_[static_cast<size_t>(i)];
         if (Button_GetCheck(check_[i]) != (r.checked ? BST_CHECKED : BST_UNCHECKED)) Button_SetCheck(check_[i], r.checked ? BST_CHECKED : BST_UNCHECKED);
-        EnableWindow(check_[i], r.enabled);
+        if (IsWindowEnabled(check_[i]) != (r.enabled ? TRUE : FALSE)) EnableWindow(check_[i], r.enabled);
+        // the row's own buttons; while a mod's own uninstaller runs nothing else is started
+        const bool idle = uninstalling_.empty();
+        SetRowButton(action_[i], &action_shown_[i], r.action, r.action_enabled && idle);
+        SetRowButton(unins_[i], &unins_shown_[i], r.uninstall, r.uninstall_enabled && idle);
     }
     Tone tone = Tone::Normal;
     const std::string notice = NoticeText(&tone);
     notice_tone_ = tone;
     SetStatic(st_notice_, notice);
     const bool running = inst_model_.running();
-    EnableWindow(btn_install_, !running && inst_model_.CanStart().can);
+    EnableWindow(btn_install_, !running && uninstalling_.empty() && inst_model_.CanStart().can);
     EnableWindow(btn_check_, !running && inst_model_.has_game());
     const bool cancelling = running && inst_model_.cancel_requested();
     SetWindowTextW(btn_close_, running ? (cancelling ? L"Cancelling..." : L"Cancel") : L"Close");
@@ -591,9 +637,15 @@ int View::ComputeRows(int width) {
     const int pad = S(10), gap = S(8);
     const int title_h = S(22);
     const int line = fonts_.ui_h, fine = fonts_.fine_h;
-    const int card_h = pad + title_h + S(3) + line + S(4) + fine + S(2) + fine + S(2) + fine + pad;
+    // the three lines (Installed / Newest, where it comes from, how it runs) sit beside the row's own buttons; the note below them runs the whole width
+    const int col_h = line + S(4) + fine + S(2) + fine;
+    const int card_h = pad + title_h + S(3) + col_h + S(2) + fine + pad;
     const int mark_w = S(230);
     const int text_l = pad + S(24);
+    const int btn_w = S(kRowButtonW);
+    const int text_r = width - pad - btn_w - S(10);
+    const int btn_gap = S(4);
+    const int btn_h = (col_h - btn_gap) / 2;
     int y = 0;
     for (int i = 0; i < kPieceCount; ++i) {
         RowGeo& g = geo_[i];
@@ -601,15 +653,21 @@ int View::ComputeRows(int width) {
         g.check = RECT{pad, y + pad, width - pad - mark_w - S(8), y + pad + title_h};
         g.state = RECT{width - pad - mark_w, y + pad, width - pad, y + pad + title_h};
         int ly = y + pad + title_h + S(3);
-        const int col1 = (width - text_l - pad) * 40 / 100;
+        const int col_top = ly;
+        const int col1 = (text_r - text_l) * 46 / 100;
         g.installed = RECT{text_l, ly, text_l + col1, ly + line};
-        g.latest = RECT{text_l + col1 + S(8), ly, width - pad, ly + line};
+        g.latest = RECT{text_l + col1 + S(8), ly, text_r, ly + line};
         ly += line + S(4);
-        g.source = RECT{text_l, ly, width - pad, ly + fine};
+        g.source = RECT{text_l, ly, text_r, ly + fine};
         ly += fine + S(2);
-        g.how = RECT{text_l, ly, width - pad, ly + fine};
+        g.how = RECT{text_l, ly, text_r, ly + fine};
         ly += fine + S(2);
         g.note = RECT{text_l, ly, width - pad, ly + fine};
+        // the buttons: the action on top, Uninstall under it; a row with only an action button has it in the middle of the column
+        const bool has_unins = rows_.size() == static_cast<size_t>(kPieceCount) && !rows_[static_cast<size_t>(i)].uninstall.empty();
+        const int top = has_unins ? col_top : col_top + (col_h - btn_h) / 2;
+        g.action = RECT{width - pad - btn_w, top, width - pad, top + btn_h};
+        g.uninstall = RECT{width - pad - btn_w, col_top + btn_h + btn_gap, width - pad, col_top + btn_h + btn_gap + btn_h};
         y += card_h + gap;
     }
     return y - gap;
@@ -652,6 +710,10 @@ void View::Layout() {
     for (int i = 0; i < kPieceCount; ++i) {
         const RECT& c = geo_[i].check;
         SetWindowPos(check_[i], nullptr, c.left, c.top, c.right - c.left, c.bottom - c.top, SWP_NOZORDER | SWP_NOACTIVATE);
+        const RECT& a = geo_[i].action;
+        SetWindowPos(action_[i], nullptr, a.left, a.top, a.right - a.left, a.bottom - a.top, SWP_NOZORDER | SWP_NOACTIVATE);
+        const RECT& u = geo_[i].uninstall;
+        SetWindowPos(unins_[i], nullptr, u.left, u.top, u.right - u.left, u.bottom - u.top, SWP_NOZORDER | SWP_NOACTIVATE);
     }
     laying_out_ = false;
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -766,11 +828,25 @@ void View::OnFacts(FactsMsg* raw) {
     std::unique_ptr<FactsMsg> m(raw);
     if (m->gen != check_gen_) return;
     inst_model_.SetLoader(m->loader, true);
-    for (const ModEntry& e : m->mods) {
+    mods_ = m->mods;
+    for (const ModEntry& e : mods_) {
         Piece p;
-        if (PieceOfModId(e.id, &p)) inst_model_.SetInstalled(p, e.installed, e.source == "manifest" ? e.version : "");
+        if (PieceOfModId(e.id, &p)) inst_model_.SetInstalled(p, e.installed, e.found_version, e.found_from);
     }
     for (const std::string& n : m->loader.notes) AppendLog("D2RLoader: " + n);
+    if (await_uninstall_facts_) {
+        // what the uninstaller left: the mod is gone, or its own question was answered No and it is still there
+        await_uninstall_facts_ = false;
+        const ModEntry* e = EntryOf(uninstalling_piece_);
+        const std::string name = PieceName(uninstalling_piece_);
+        if (e && e->installed) {
+            AppendLog(name + " is still installed (its uninstaller ended without removing it).");
+            Sticky(Tone::Warn, name + " is still installed: its uninstaller ended without removing it.");
+        } else {
+            AppendLog(name + " is no longer installed.");
+            Sticky(Tone::Ok, name + " was uninstalled.");
+        }
+    }
     UpdateUi();
     MaybeShot();
     MaybeAuto();
@@ -783,7 +859,11 @@ void View::OnUpdate(UpdateMsg* raw) {
     model_.SetLatest(m->info);
     if (m->info.checked) {
         const Release& r = m->info.latest;
-        AppendLog(std::string(PieceName(m->piece)) + ": " + (r.up_to_date ? std::string("you have the newest version") : "newest is " + r.version + (r.sha256.empty() ? ", no published checksum" : ", checksum " + r.sha256_source)));
+        const bool older_named = r.up_to_date && !r.announced.empty() && IsNewer(r.current, r.announced);       // the site's newest is older than what is installed
+        AppendLog(std::string(PieceName(m->piece)) + ": " +
+                  (older_named ? "the site names " + r.announced + ", you have " + r.current + ": a newer version, nothing to update"
+                               : r.up_to_date ? std::string("you have the newest version")
+                                              : "newest is " + r.version + (r.sha256.empty() ? ", no published checksum" : ", checksum " + r.sha256_source)));
         for (const std::string& w : r.warnings) AppendLog("warning: " + w);
     } else {
         AppendLog(std::string("warning: ") + PieceName(m->piece) + ": could not find out the newest version: " + m->info.error);
@@ -795,12 +875,79 @@ void View::OnUpdate(UpdateMsg* raw) {
 
 void View::OnRowCheck(int piece) {
     if (piece < 0 || piece >= kPieceCount) return;
-    if (inst_model_.running()) {
+    if (inst_model_.running() || !uninstalling_.empty()) {
         UpdateUi();                    // the box toggled itself: back to what the model says
         return;
     }
     inst_model_.Select(static_cast<Piece>(piece), Button_GetCheck(check_[piece]) == BST_CHECKED);
     sticky_.clear();
+    UpdateUi();
+}
+
+// The row's own Install / Update / Repair: only this piece is ticked (D2RLoader goes with a mod that needs it, as the cards' button does), then the same path as
+// Install selected - the same refusals, the same question about a download without a published checksum.
+void View::OnRowAction(int piece) {
+    if (piece < 0 || piece >= kPieceCount || inst_model_.running() || !uninstalling_.empty()) return;
+    inst_model_.SetGameRunning(model_.GameRunning());
+    inst_model_.TickOnly({static_cast<Piece>(piece)});
+    sticky_.clear();
+    AppendLog(std::string(PieceName(static_cast<Piece>(piece))) + ": " + (rows_.size() == static_cast<size_t>(kPieceCount) ? rows_[static_cast<size_t>(piece)].action : std::string("install")) + " pressed on its row.");
+    UpdateUi();
+    OnInstall();
+}
+
+// The row's Uninstall: the same as the card's button in the main window. Refused while the game runs; a question that names the mod; then the mod's own uninstaller
+// (Authentic's unins000.exe, Unleashed's in %LOCALAPPDATA%\Programs\D2R PCVR, without /SILENT so its own question shows); with none on this computer, the words for
+// removing it by hand. The launcher never deletes a mod folder itself. When the uninstaller ends the disk is looked at again and the row changes.
+void View::OnRowUninstall(int piece) {
+    if (piece < 0 || piece >= kPieceCount || inst_model_.running() || !uninstalling_.empty()) return;
+    const Piece p = static_cast<Piece>(piece);
+    const ModEntry* e = EntryOf(p);
+    if (!IsMod(p) || !e || !e->installed) return;
+    const Model::UninstallOffer o = model_.UninstallFor(*e);
+    if (o.kind == Model::UninstallOffer::Kind::None) return;
+    const std::string refusal = model_.UninstallRefusal();
+    if (!refusal.empty()) {
+        Sticky(Tone::Warn, refusal);
+        AppendLog("Not uninstalling " + e->name + ": " + refusal);
+        UpdateUi();
+        return;
+    }
+    sticky_.clear();
+    const std::wstring title = L"Uninstall " + W(e->name);
+    if (o.kind == Model::UninstallOffer::Kind::Explain) {
+        AppendLog(e->name + " has no uninstaller here: " + DisplayPath(e->dir));
+        MessageBoxW(hwnd_, W(o.explanation).c_str(), title.c_str(), MB_OK | MB_ICONINFORMATION);
+        UpdateUi();
+        return;
+    }
+    AppendLog("Asked before uninstalling " + e->name + ".");
+    if (MessageBoxW(hwnd_, W(UninstallQuestion(*e, o)).c_str(), title.c_str(), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) {
+        AppendLog("Not uninstalling " + e->name + ": you said no. Nothing was run.");
+        UpdateUi();
+        return;
+    }
+    bool declined = false;
+    if (!StartUninstaller(hwnd_, o, hwnd_, WM_V_UNINSTALLED, &declined)) {
+        Sticky(declined ? Tone::Warn : Tone::Error, declined ? std::string("The uninstaller was cancelled.") : std::string("Could not start the uninstaller."));
+        AppendLog(declined ? "The Windows prompt for the uninstaller was declined." : "error: could not start " + DisplayPath(o.exe));
+        UpdateUi();
+        return;
+    }
+    uninstalling_ = e->name;
+    uninstalling_piece_ = p;
+    AppendLog("Running the uninstaller of " + e->name + ": " + DisplayPath(o.exe));
+    UpdateUi();
+}
+
+// The uninstaller has ended: look at the game folder again, and ask the servers again (an answer given while the mod was installed said "nothing newer than yours").
+void View::OnUninstalled() {
+    if (uninstalling_.empty()) return;
+    AppendLog("The uninstaller of " + uninstalling_ + " has ended.");
+    sticky_.clear();
+    uninstalling_.clear();
+    await_uninstall_facts_ = true;
+    StartChecks(true);
     UpdateUi();
 }
 
@@ -1060,6 +1207,7 @@ LRESULT View::OnView(UINT m, WPARAM w, LPARAM l) {
         case WM_V_STAGE: OnStage(reinterpret_cast<StageMsg*>(l)); return 0;
         case WM_V_PIECE: OnPiece(reinterpret_cast<PieceOutcome*>(l)); return 0;
         case WM_V_RUNDONE: OnRunDone(); return 0;
+        case WM_V_UNINSTALLED: OnUninstalled(); return 0;
         case WM_V_SHOT: TakeShot(); return 0;
         case WM_V_AUTO:
             OnInstall();
@@ -1136,13 +1284,18 @@ LRESULT View::OnRows(UINT m, WPARAM w, LPARAM l) {
             return 0;
         case WM_COMMAND: {
             const int id = LOWORD(w), code = HIWORD(w);
-            if (id >= IDC_V_ROWCHECK && id < IDC_V_ROWCHECK + kPieceCount && code == BN_CLICKED) OnRowCheck(id - IDC_V_ROWCHECK);
+            if (code != BN_CLICKED) return 0;
+            if (id >= IDC_V_ROWCHECK && id < IDC_V_ROWCHECK + kPieceCount) OnRowCheck(id - IDC_V_ROWCHECK);
+            else if (id >= IDC_V_ROWACT && id < IDC_V_ROWACT + kPieceCount) OnRowAction(id - IDC_V_ROWACT);
+            else if (id >= IDC_V_ROWUN && id < IDC_V_ROWUN + kPieceCount) OnRowUninstall(id - IDC_V_ROWUN);
             return 0;
         }
         case WM_CTLCOLORBTN: {
             // a check box sits on its card: the card's own colour, ticked (light blue) or not (white), enabled or not
-            const int piece = GetDlgCtrlID(reinterpret_cast<HWND>(l)) - IDC_V_ROWCHECK;
-            const bool sel = piece >= 0 && piece < kPieceCount && rows_.size() == static_cast<size_t>(kPieceCount) && rows_[static_cast<size_t>(piece)].checked;
+            const int ctl = GetDlgCtrlID(reinterpret_cast<HWND>(l));
+            if (ctl < IDC_V_ROWCHECK || ctl >= IDC_V_ROWCHECK + kPieceCount) return DefWindowProcW(rows_wnd_, m, w, l);       // a push button draws itself
+            const int piece = ctl - IDC_V_ROWCHECK;
+            const bool sel = rows_.size() == static_cast<size_t>(kPieceCount) && rows_[static_cast<size_t>(piece)].checked;
             SetBkColor(reinterpret_cast<HDC>(w), sel ? kCardSelected : kCard);
             return reinterpret_cast<LRESULT>(sel ? sel_brush_ : white_brush_);
         }

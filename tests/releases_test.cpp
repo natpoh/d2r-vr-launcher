@@ -385,4 +385,80 @@ TEST(an_update_check_puts_installed_and_newest_together) {
     CHECK(!CheckUpdate(h, sb.game, "no-such-mod", Sources()).checked);
 }
 
+// ================================================================== never a downgrade, and the installed version from wherever it is found
+
+TEST(a_newer_installed_version_is_never_older_than_the_newest_release) {
+    // installed (rows) against newest (columns); a suffix after the numbers is the same base version
+    struct Case {
+        const char* installed;
+        const char* newest;
+        bool newer;      // the newest is newer: an update
+    };
+    const Case cases[] = {
+        {"0.170.0", "0.169", false},
+        {"0.170.0", "0.169.0", false},
+        {"0.170.0", "0.170.0", false},
+        {"0.170.0", "0.171", true},
+        {"0.170.0-launcher-test", "0.169", false},
+        {"0.170.0-launcher-test", "0.169.0", false},
+        {"0.170.0-launcher-test", "0.170.0", false},
+        {"0.170.0-launcher-test", "0.171", true},
+        {"0.169.0-modlayout-candidate", "0.169", false},
+        {"0.169.0-modlayout-candidate", "0.169.0", false},
+        {"0.169.0-modlayout-candidate", "0.170.0", true},
+        {"0.169.0-modlayout-candidate", "0.171", true},
+        {"0.3.19", "0.3.19", false},
+        {"0.3.19", "0.3.17", false},
+        {"0.3.19", "0.3.20", true},
+    };
+    for (const Case& c : cases) {
+        const std::string label = std::string("installed ") + c.installed + ", newest " + c.newest;
+        if (IsNewer(c.newest, c.installed) != c.newer) t::Fail(__FILE__, __LINE__, label + ": IsNewer");
+        // what our server answers for such a pair: the release is offered only when it is newer
+        const Release r = ParseAuthenticAnswer("{\"version\":\"" + std::string(c.newest) + "\",\"download_url\":\"https://bodywalkvr.com/static/D2R_VR_Setup_v0.1.0.exe\",\"changelog\":\"x\"}", c.installed, Sources());
+        if (r.up_to_date == c.newer) t::Fail(__FILE__, __LINE__, label + ": the answer is up_to_date = " + (r.up_to_date ? "true" : "false"));
+        // ... and it remembers the number the site named, so the window can say "you have a newer version"
+        if (!c.newer && r.announced != NormalizeVersion(c.newest)) t::Fail(__FILE__, __LINE__, label + ": announced '" + r.announced + "'");
+    }
+    // the site's own "nothing newer" names no number
+    CHECK(ParseAuthenticAnswer(Text("authentic_uptodate.json"), "0.170.0", Sources()).announced.empty());
+    // Unleashed: the newest release in the list, whatever is installed
+    const Release u = ParseUnleashedAnswer(Github(), "0.3.20", nullptr, Sources());
+    CHECK(u.up_to_date);
+    CHECK_EQ(u.version, std::string("0.3.19"));
+    CHECK_EQ(u.announced, std::string("0.3.19"));
+    CHECK(!ParseUnleashedAnswer(Github(), "0.3.17", nullptr, Sources()).up_to_date);
+}
+
+TEST(the_installed_version_is_found_in_the_manifest_the_manifest_that_does_not_validate_or_the_plugin) {
+    tt::Sandbox sb;
+    tt::Write(sb.game / "mods" / "D2R-PCVR" / "D2R-PCVR.mpq" / "modinfo.json", "{}");
+    CHECK_EQ(InstalledVersion(sb.game, "d2r-pcvr"), std::string());                                 // nothing says which release it is
+    // a manifest this build cannot validate
+    std::string manifest;
+    ReadFile(fs::path(VRML_SOURCE_DIR) / "examples" / "d2rloader-mods" / "d2r-pcvr" / "vrmod-manifest.json", &manifest);
+    Json j = Json::Parse(manifest);
+    j.set("version", Json::String("0.3.17-test"));
+    j.set("a_field_of_another_schema", Json::Bool(true));
+    tt::Write(sb.game / "mods" / "D2R-PCVR" / "vrmod-manifest.json", j.dump());
+    CHECK_EQ(InstalledVersion(sb.game, "d2r-pcvr"), std::string("0.3.17"));
+    FakeHttp h = WithSha256File();
+    h.answers[Sources().unleashed_api] = Text("github_releases.json");
+    UpdateInfo u = CheckUpdate(h, sb.game, "d2r-pcvr", Sources());
+    CHECK(u.checked && u.installed && u.update_available);
+    CHECK_EQ(u.installed_version, std::string("0.3.17"));
+#ifdef VRML_FAKE_PLUGIN_DIR
+    // no manifest at all: the plugin's version resource (Bear's real one says 0.3.19)
+    fs::remove(sb.game / "mods" / "D2R-PCVR" / "vrmod-manifest.json");
+    fs::create_directories(sb.game / "mods" / "D2R-PCVR" / "d2rloader" / "plugins");
+    fs::copy_file(fs::path(VRML_FAKE_PLUGIN_DIR) / "fake_plugin_pcvr.dll", sb.game / "mods" / "D2R-PCVR" / "d2rloader" / "plugins" / "d2rl-pcvr.dll");
+    CHECK_EQ(InstalledVersion(sb.game, "d2r-pcvr"), std::string("0.3.19"));
+    u = CheckUpdate(h, sb.game, "d2r-pcvr", Sources());
+    CHECK(u.checked && u.installed && !u.update_available);                                         // 0.3.19 is the newest: not "unknown, so update"
+    CHECK_EQ(u.installed_version, std::string("0.3.19"));
+    CHECK(u.latest.up_to_date);
+#endif
+}
+
+
 TEST_MAIN()

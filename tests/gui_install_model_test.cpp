@@ -195,13 +195,11 @@ TEST(an_outdated_mod_shows_the_badge_and_is_ticked_a_current_one_is_not) {
     CHECK(u.badge.empty());
     CHECK(!u.checked);
     CHECK(Has(u.latest, "you have the newest version"));
-    // ticking a current one installs it again: a repair, and the job says so
+    // a current one cannot be ticked any more (no "repair" tick): its box is off, a click does nothing, no job is made for it
+    CHECK(!u.enabled);
     f.m.Select(Piece::Unleashed, true);
-    CHECK(Has(Row(f.m.Rows(), Piece::Unleashed).note, "installs it again"));
-    bool forced = false;
-    for (const PieceJob& j : f.m.Jobs(false))
-        if (j.piece == Piece::Unleashed) forced = j.force && !j.has_release;
-    CHECK(forced);
+    CHECK(!f.m.IsChecked(Piece::Unleashed));
+    for (const PieceJob& j : f.m.Jobs(false)) CHECK(j.piece != Piece::Unleashed && !j.force);
 }
 
 TEST(an_installed_mod_whose_version_is_unknown_counts_as_outdated) {
@@ -467,6 +465,350 @@ TEST(a_finished_run_that_went_well_says_done) {
     CHECK_EQ(head, std::string("Done: 2 installed, 1 already there."));
     CHECK(t == Tone::Ok);
     CHECK(Has(f.m.SummaryLines()[0], "already installed"));
+}
+
+// ================================================================== the rows: what is installed against what is newest, the ticks, the row's own buttons
+
+namespace {
+
+// a failed expectation of a table, with the row of the table in the message
+void Expect(bool ok, const std::string& what) {
+    if (!ok) t::Fail(__FILE__, __LINE__, what);
+}
+
+// The site's answer when it knows what is installed and has nothing newer ("0.0.0" for Authentic, "up_to_date" for the model), optionally naming its own older number.
+UpdateInfo Quiet(Piece p, const std::string& installed, const std::string& announced = "") {
+    UpdateInfo u = Answer(p, installed, "", true);
+    u.latest.announced = announced;
+    return u;
+}
+
+// A game with D2RLoader's reviewed files; both servers asked (the answers are set by the test).
+struct Quiet2 {
+    InstallModel m;
+    Quiet2() {
+        m.SetGame("G:/Game", true);
+        m.SetLoader(Reviewed(), true);
+    }
+    void Mod(Piece p, bool installed, const std::string& version, const UpdateInfo& answer, const std::string& from = "manifest") {
+        m.SetInstalled(p, installed, version, from);
+        m.SetUpdate(p, answer);
+    }
+};
+
+}  // namespace
+
+TEST(a_downgrade_is_never_offered_and_a_suffix_is_the_same_base_version) {
+    struct Case {
+        const char* installed;
+        const char* newest;
+        Standing want;
+    };
+    const Case cases[] = {
+        {"0.170.0", "0.169", Standing::Newer},
+        {"0.170.0", "0.169.0", Standing::Newer},
+        {"0.170.0", "0.170.0", Standing::Same},
+        {"0.170.0", "0.171", Standing::Older},
+        {"0.170.0-launcher-test", "0.169", Standing::Newer},
+        {"0.170.0-launcher-test", "0.169.0", Standing::Newer},
+        {"0.170.0-launcher-test", "0.170.0", Standing::Same},
+        {"0.170.0-launcher-test", "0.171", Standing::Older},
+        {"0.169.0-modlayout-candidate", "0.169", Standing::Same},
+        {"0.169.0-modlayout-candidate", "0.169.0", Standing::Same},
+        {"0.169.0-modlayout-candidate", "0.170.0", Standing::Older},
+        {"0.169.0-modlayout-candidate", "0.171", Standing::Older},
+        {"0.3.19", "0.3.19", Standing::Same},
+        {"0.3.19", "0.3.17", Standing::Newer},
+        {"0.3.19", "0.3.20", Standing::Older},
+    };
+    for (const Case& c : cases) {
+        const std::string label = std::string("installed ") + c.installed + ", newest " + c.newest;
+        const Release r = Answer(Piece::Authentic, c.newest).latest;               // a source that names its number whatever is installed
+        Expect(StandingOf(c.installed, r) == c.want, label + ": standing");
+        Expect(IsUpdateFor(c.installed, r) == (c.want == Standing::Older), label + ": IsUpdateFor");
+        Expect(IsNewer(c.newest, c.installed) == (c.want == Standing::Older), label + ": IsNewer");
+        // ... and the row of the install view
+        Quiet2 q;
+        q.Mod(Piece::Authentic, true, c.installed, Answer(Piece::Authentic, c.newest));
+        q.Mod(Piece::Unleashed, true, "0.3.19", Quiet(Piece::Unleashed, "0.3.19"));
+        const std::vector<InstallRow> all = q.m.Rows();
+        const InstallRow& a = Row(all, Piece::Authentic);
+        const bool update = c.want == Standing::Older;
+        Expect(a.checked == update, label + ": ticked only for a proven update");
+        Expect(a.badge.empty() == !update, label + ": the amber badge only for a proven update");
+        Expect(a.action == (update ? "Update" : "Up to date") && a.action_enabled == update, label + ": the row button");
+        Expect(a.enabled == update, label + ": the box is on only for a proven update");
+        if (c.want == Standing::Newer) Expect(a.latest == std::string(c.newest) + " - you have a newer version", label + ": the Newest line says so (" + a.latest + ")");
+        if (c.want == Standing::Same) Expect(Has(a.latest, "you have the newest version"), label + ": the Newest line (" + a.latest + ")");
+        Expect(q.m.CanStart().can == update, label + ": Install selected is on only for a proven update");
+    }
+    // a site that answers with its own older number in the shape Authentic's server does: "nothing newer than yours" and the number it has
+    CHECK(StandingOf("0.170.0", Quiet(Piece::Authentic, "0.170.0", "0.169.0").latest) == Standing::Newer);
+    CHECK(StandingOf("0.170.0", Quiet(Piece::Authentic, "0.170.0").latest) == Standing::Same);              // "0.0.0": it named none
+    // not known what is installed: nothing is proven
+    CHECK(StandingOf("", Answer(Piece::Authentic, "0.169.0").latest) == Standing::Unknown);
+    CHECK(StandingOf("junk", Answer(Piece::Authentic, "0.169.0").latest) == Standing::Unknown);
+    CHECK(IsUpdateFor("", Answer(Piece::Authentic, "0.169.0").latest));                                      // (the main window's cards still offer it)
+}
+
+TEST(installed_0_170_0_against_a_site_at_0_169_is_quiet_nothing_ticked_install_selected_off) {
+    // the report from the field: Authentic 0.170.0 is installed, the site's newest is 0.169; Unleashed's version is read from its plugin
+    Quiet2 q;
+    q.Mod(Piece::Authentic, true, "0.170.0", Quiet(Piece::Authentic, "0.170.0", "0.169.0"), "manifest (not valid)");
+    q.Mod(Piece::Unleashed, true, "0.3.19", Quiet(Piece::Unleashed, "0.3.19", "0.3.19"), "plugin");
+    const std::vector<InstallRow> rows = q.m.Rows();
+    const InstallRow& a = Row(rows, Piece::Authentic);
+    CHECK_EQ(a.installed, std::string("0.170.0 (manifest not valid)"));
+    CHECK_EQ(a.latest, std::string("0.169.0 - you have a newer version"));
+    CHECK(a.latest_tone == Tone::Ok);
+    CHECK(a.badge.empty() && a.note.empty());
+    CHECK(!a.checked && !a.enabled);
+    CHECK_EQ(a.action, std::string("Up to date"));
+    CHECK(!a.action_enabled);
+    CHECK_EQ(a.uninstall, std::string("Uninstall"));
+    CHECK(a.uninstall_enabled);
+    const InstallRow& u = Row(rows, Piece::Unleashed);
+    CHECK_EQ(u.installed, std::string("0.3.19 (from its plugin)"));
+    CHECK(Has(u.latest, "you have the newest version"));
+    CHECK(!u.checked && !u.enabled);
+    CHECK_EQ(u.action, std::string("Up to date"));
+    CHECK_EQ(u.uninstall, std::string("Uninstall"));
+    const InstallRow& l = Row(rows, Piece::Loader);
+    CHECK(!l.checked && !l.enabled);
+    CHECK_EQ(l.action, std::string("Up to date"));
+    CHECK(!l.action_enabled);
+    CHECK(l.uninstall.empty());                                                     // D2RLoader is shared by every mod: no Uninstall
+    const StartState ss = q.m.CanStart();
+    CHECK(!ss.can);
+    CHECK_EQ(ss.reason, std::string("Nothing to install: everything is up to date."));
+    CHECK(ss.calm);                                                                  // good news, not a warning
+    CHECK(q.m.Jobs(false).empty());
+    // a click on a box, or a program ticking it, does nothing
+    q.m.Select(Piece::Authentic, true);
+    q.m.Select(Piece::Loader, true);
+    CHECK(!q.m.IsChecked(Piece::Authentic) && !q.m.IsChecked(Piece::Loader));
+    // a card's Update button that is pressed for a mod that turns out to be current: the answer unticks it and says why
+    q.m.TickOnly({Piece::Authentic});
+    CHECK(!q.m.IsChecked(Piece::Authentic));
+    CHECK_EQ(q.m.CanStart().reason, std::string("Nothing to install: everything you ticked is up to date."));
+    CHECK(q.m.CanStart().calm);
+    q.m.Select(Piece::Authentic, false);
+    CHECK_EQ(q.m.CanStart().reason, std::string("Nothing to install: everything is up to date."));
+}
+
+TEST(a_mod_whose_version_cannot_be_read_is_not_ticked_and_its_button_says_update) {
+    Quiet2 q;
+    q.Mod(Piece::Authentic, true, "", Answer(Piece::Authentic, "0.169.0"));
+    q.Mod(Piece::Unleashed, true, "", Answer(Piece::Unleashed, "0.3.19", kSha));
+    std::vector<InstallRow> rows = q.m.Rows();
+    const InstallRow& a = Row(rows, Piece::Authentic);
+    CHECK_EQ(a.installed, std::string("installed (version unknown)"));
+    CHECK_EQ(a.latest, std::string("0.169.0"));
+    CHECK(!a.checked);
+    CHECK(a.enabled);                                                               // the player may tick it himself
+    CHECK_EQ(a.action, std::string("Update"));
+    CHECK(a.action_enabled);
+    CHECK(a.badge.empty());                                                         // nothing is proven, so no amber "Update available"
+    CHECK(Has(a.note, "version could not be read") && Has(a.note, "not ticked") && Has(a.note, "Update runs the Setup of 0.169.0 over it"));
+    CHECK_EQ(a.uninstall, std::string("Uninstall"));
+    CHECK(!Row(rows, Piece::Unleashed).checked);
+    CHECK(!q.m.CanStart().can);
+    CHECK_EQ(q.m.CanStart().reason, std::string("Tick what you want to install."));
+    CHECK(!q.m.CanStart().calm);                                                    // that one is a nudge, not good news
+    CHECK(q.m.Jobs(false).empty());
+    // the row's Update: only that piece is ticked, and it is a real install of the announced release (not "again": nothing is forced)
+    q.m.TickOnly({Piece::Authentic});
+    CHECK(q.m.IsChecked(Piece::Authentic) && !q.m.IsChecked(Piece::Unleashed) && !q.m.IsChecked(Piece::Loader));
+    CHECK(q.m.CanStart().can);
+    const std::vector<PieceJob> jobs = q.m.Jobs(true);
+    REQUIRE(jobs.size() == 1);
+    CHECK(jobs[0].piece == Piece::Authentic && jobs[0].has_release && jobs[0].release.version == "0.169.0" && !jobs[0].force);
+    // the player ticks the other one's box himself: allowed
+    q.m.Select(Piece::Unleashed, true);
+    CHECK(q.m.IsChecked(Piece::Unleashed));
+}
+
+TEST(a_proven_update_is_ticked_and_offered_by_the_row) {
+    Quiet2 q;
+    q.Mod(Piece::Authentic, true, "0.167.0", Answer(Piece::Authentic, "0.168.0"));
+    q.Mod(Piece::Unleashed, true, "0.3.17", Answer(Piece::Unleashed, "0.3.19", kSha), "plugin");
+    const std::vector<InstallRow> rows = q.m.Rows();
+    for (Piece p : {Piece::Authentic, Piece::Unleashed}) {
+        const InstallRow& r = Row(rows, p);
+        CHECK(r.checked && r.enabled);
+        CHECK_EQ(r.action, std::string("Update"));
+        CHECK(r.action_enabled);
+        CHECK(Has(r.badge, "Update available: "));
+        CHECK_EQ(r.uninstall, std::string("Uninstall"));
+    }
+    CHECK(q.m.CanStart().can);
+    CHECK_EQ(q.m.Jobs(false).size(), size_t(2));
+    // the row of one of them: only that one
+    q.m.TickOnly({Piece::Unleashed});
+    CHECK(!q.m.IsChecked(Piece::Authentic) && q.m.IsChecked(Piece::Unleashed));
+    CHECK_EQ(q.m.Jobs(false).size(), size_t(1));
+}
+
+TEST(the_rows_own_buttons_follow_what_is_installed_and_what_is_going_on) {
+    Fresh f;
+    f.m.SetChecking();
+    // while the servers are asked: Install is there for what is missing but cannot be pressed; no Uninstall for what is not installed
+    std::vector<InstallRow> rows = f.m.Rows();
+    CHECK_EQ(Row(rows, Piece::Loader).action, std::string("Install"));
+    CHECK(Row(rows, Piece::Loader).action_enabled);                                 // D2RLoader needs no answer
+    CHECK_EQ(Row(rows, Piece::Authentic).action, std::string("Install"));
+    CHECK(!Row(rows, Piece::Authentic).action_enabled);
+    CHECK(Row(rows, Piece::Authentic).uninstall.empty() && Row(rows, Piece::Unleashed).uninstall.empty() && Row(rows, Piece::Loader).uninstall.empty());
+    f.Answers();
+    rows = f.m.Rows();
+    CHECK_EQ(Row(rows, Piece::Authentic).action, std::string("Install"));
+    CHECK(Row(rows, Piece::Authentic).action_enabled && Row(rows, Piece::Unleashed).action_enabled);
+    // the game runs: nothing can be started from a row (the notice says so); a running install blocks them too
+    f.m.SetGameRunning(true);
+    CHECK(!Row(f.m.Rows(), Piece::Authentic).action_enabled && !Row(f.m.Rows(), Piece::Loader).action_enabled);
+    f.m.SetGameRunning(false);
+    // installed: Uninstall appears (enabled even while the game runs: pressing it is refused with the words, it is not a grey button)
+    f.m.SetLoader(Reviewed(), true);
+    f.m.SetInstalled(Piece::Authentic, true, "0.168.0");
+    f.m.SetUpdate(Piece::Authentic, Quiet(Piece::Authentic, "0.168.0"));
+    f.m.SetGameRunning(true);
+    rows = f.m.Rows();
+    CHECK_EQ(Row(rows, Piece::Authentic).uninstall, std::string("Uninstall"));
+    CHECK(Row(rows, Piece::Authentic).uninstall_enabled);
+    CHECK_EQ(Row(rows, Piece::Authentic).action, std::string("Up to date"));
+    CHECK(Row(rows, Piece::Unleashed).uninstall.empty());
+    f.m.SetGameRunning(false);
+    // a run: every button is off (and nothing is ticked by a click)
+    f.m.BeginRun(f.m.Jobs(true));
+    rows = f.m.Rows();
+    for (Piece p : {Piece::Loader, Piece::Authentic, Piece::Unleashed}) CHECK(!Row(rows, p).action_enabled);
+    CHECK(!Row(rows, Piece::Authentic).uninstall_enabled);
+    f.m.EndRun();
+    // a question that failed: no button can be pressed for that mod
+    f.m.SetUpdate(Piece::Unleashed, Failed("cannot reach github.com"));
+    CHECK_EQ(Row(f.m.Rows(), Piece::Unleashed).action, std::string("Install"));
+    CHECK(!Row(f.m.Rows(), Piece::Unleashed).action_enabled);
+    // no game folder: no buttons at all
+    InstallModel none;
+    for (const InstallRow& r : none.Rows()) CHECK(r.action.empty() && r.uninstall.empty());
+}
+
+TEST(only_the_authentic_and_unleashed_rows_ever_have_an_uninstall_button) {
+    Quiet2 q;
+    q.Mod(Piece::Authentic, true, "0.168.0", Quiet(Piece::Authentic, "0.168.0"));
+    q.Mod(Piece::Unleashed, false, "", Answer(Piece::Unleashed, "0.3.19", kSha));
+    std::vector<InstallRow> rows = q.m.Rows();
+    CHECK_EQ(Row(rows, Piece::Authentic).uninstall, std::string("Uninstall"));
+    CHECK(Row(rows, Piece::Unleashed).uninstall.empty());                           // not installed
+    CHECK(Row(rows, Piece::Loader).uninstall.empty());
+    // D2RLoader whose files differ, or missing: still none (its files are shared; the launcher keeps a backup of what it replaced, there is nothing to put back after a first install)
+    LoaderStatus differs;
+    differs.present = true;
+    q.m.SetLoader(differs, true);
+    CHECK(Row(q.m.Rows(), Piece::Loader).uninstall.empty());
+    q.m.SetLoader(LoaderStatus(), false);
+    CHECK(Row(q.m.Rows(), Piece::Loader).uninstall.empty());
+    q.m.SetInstalled(Piece::Authentic, false, "");
+    CHECK(Row(q.m.Rows(), Piece::Authentic).uninstall.empty());
+}
+
+TEST(d2rloader_has_install_repair_and_up_to_date_on_its_row) {
+    Fresh f;
+    f.Answers();
+    // missing
+    InstallRow l = Row(f.m.Rows(), Piece::Loader);
+    CHECK_EQ(l.action, std::string("Install"));
+    CHECK(l.action_enabled && l.enabled);
+    // files differ: Repair, the box is on, and with no mod ticked it is not ticked by itself (as before: it follows the mods)
+    LoaderStatus differs;
+    differs.present = true;
+    differs.reviewed = false;
+    f.m.SetInstalled(Piece::Authentic, true, "0.168.0");
+    f.m.SetInstalled(Piece::Unleashed, true, "0.3.19");
+    f.m.SetUpdate(Piece::Authentic, Quiet(Piece::Authentic, "0.168.0"));
+    f.m.SetUpdate(Piece::Unleashed, Quiet(Piece::Unleashed, "0.3.19"));
+    f.m.SetLoader(differs, true);
+    l = Row(f.m.Rows(), Piece::Loader);
+    CHECK_EQ(l.installed, std::string("files differ"));
+    CHECK_EQ(l.action, std::string("Repair"));
+    CHECK(l.action_enabled && l.enabled && !l.checked);
+    CHECK(Has(l.note, "Repair puts the reviewed ones in") && Has(l.note, "backed up"));
+    CHECK(!f.m.CanStart().can);
+    // the row's Repair: only D2RLoader
+    f.m.TickOnly({Piece::Loader});
+    CHECK(f.m.IsChecked(Piece::Loader) && !f.m.IsChecked(Piece::Authentic) && !f.m.IsChecked(Piece::Unleashed));
+    CHECK(f.m.CanStart().can);
+    const std::vector<PieceJob> jobs = f.m.Jobs(false);
+    REQUIRE(jobs.size() == 1);
+    CHECK(jobs[0].piece == Piece::Loader);
+    // reviewed: greyed Up to date, the box is off and cannot be ticked
+    f.m.SetLoader(Reviewed(), true);
+    l = Row(f.m.Rows(), Piece::Loader);
+    CHECK_EQ(l.action, std::string("Up to date"));
+    CHECK(!l.action_enabled && !l.enabled && !l.checked);
+    f.m.Select(Piece::Loader, true);
+    CHECK(!f.m.IsChecked(Piece::Loader));
+    // found but not hashed yet: wait, nothing to press
+    LoaderStatus found;
+    found.present = true;
+    f.m.SetLoader(found, false);
+    l = Row(f.m.Rows(), Piece::Loader);
+    CHECK_EQ(l.action, std::string("Checking..."));
+    CHECK(!l.action_enabled && !l.enabled);
+}
+
+TEST(a_row_button_ticks_only_its_piece_and_takes_d2rloader_along_when_it_is_missing) {
+    Fresh f;
+    f.Answers();
+    f.m.TickOnly({Piece::Authentic});
+    CHECK(f.m.IsChecked(Piece::Authentic) && !f.m.IsChecked(Piece::Unleashed));
+    CHECK(f.m.IsChecked(Piece::Loader));                                            // the mod runs only under it, and it is missing
+    std::vector<PieceJob> jobs = f.m.Jobs(false);
+    REQUIRE(jobs.size() == 2);
+    CHECK(jobs[0].piece == Piece::Loader && jobs[1].piece == Piece::Authentic);
+    // D2RLoader's own row: only D2RLoader, the missing mods stay unticked
+    f.m.TickOnly({Piece::Loader});
+    CHECK(f.m.IsChecked(Piece::Loader) && !f.m.IsChecked(Piece::Authentic) && !f.m.IsChecked(Piece::Unleashed));
+    jobs = f.m.Jobs(false);
+    REQUIRE(jobs.size() == 1);
+    CHECK(jobs[0].piece == Piece::Loader);
+    // with D2RLoader reviewed a mod's button ticks just the mod
+    f.m.SetLoader(Reviewed(), true);
+    f.m.TickOnly({Piece::Unleashed});
+    jobs = f.m.Jobs(false);
+    REQUIRE(jobs.size() == 1);
+    CHECK(jobs[0].piece == Piece::Unleashed);
+}
+
+TEST(nothing_is_ticked_by_the_facts_unless_it_is_a_real_install_or_update) {
+    // every combination of the mod's state: missing, unknown, older, current, newer
+    struct Case {
+        bool installed;
+        const char* have;
+        UpdateInfo answer;
+        bool ticked;
+        const char* action;
+    };
+    const Case cases[] = {
+        {false, "", Answer(Piece::Unleashed, "0.3.19", kSha), true, "Install"},
+        {true, "", Answer(Piece::Unleashed, "0.3.19", kSha), false, "Update"},
+        {true, "0.3.17", Answer(Piece::Unleashed, "0.3.19", kSha), true, "Update"},
+        {true, "0.3.19", Quiet(Piece::Unleashed, "0.3.19"), false, "Up to date"},
+        {true, "0.3.20", Answer(Piece::Unleashed, "0.3.19", kSha), false, "Up to date"},
+        {true, "0.3.20", Quiet(Piece::Unleashed, "0.3.20", "0.3.19"), false, "Up to date"},
+    };
+    int n = 0;
+    for (const Case& c : cases) {
+        Quiet2 q;
+        q.Mod(Piece::Authentic, true, "0.168.0", Quiet(Piece::Authentic, "0.168.0"));
+        q.Mod(Piece::Unleashed, c.installed, c.have, c.answer);
+        const InstallRow r = Row(q.m.Rows(), Piece::Unleashed);
+        const std::string label = "case " + std::to_string(n++) + " (" + (c.installed ? std::string("installed '") + c.have + "'" : std::string("missing")) + ")";
+        Expect(r.checked == c.ticked, label + ": ticked");
+        Expect(r.action == c.action, label + ": the row button is '" + r.action + "'");
+        Expect(q.m.CanStart().can == c.ticked, label + ": Install selected");
+        Expect(r.enabled == (std::string(c.action) != "Up to date"), label + ": the box");
+    }
 }
 
 TEST_MAIN()

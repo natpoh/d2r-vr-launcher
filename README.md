@@ -22,7 +22,7 @@ installer\build_launcher_installer.ps1 -BuildDir build\Release  # D2R_VR_Launche
 
 | Folder | |
 |---|---|
-| `src/` | the library (`vrml`): `mods` (discovery, D2RLoader check, runtimes, a start, settings), `launch`, `manifest`, `game`, `process`; `net`, `zip`, `install`, `releases`, `setup_run`, `install_run` (installing from the launcher; `install_run` runs the three pieces one after the other for the window and `--install-run`); the command line (`vrmodlauncher`); the window (`D2RVRLauncher`: `gui_model`, `gui_install_model`, `gui_window`, `gui_install_view`) |
+| `src/` | the library (`vrml`): `mods` (discovery, D2RLoader check, runtimes, a start, settings), `launch`, `manifest`, `game`, `process`; `net`, `zip`, `install`, `releases`, `setup_run`, `install_run` (installing from the launcher; `install_run` runs the three pieces one after the other for the window and `--install-run`); the command line (`vrmodlauncher`); `versioninfo` (a plugin's version resource); the window (`D2RVRLauncher`: `gui_model`, `gui_install_model`, `gui_window`, `gui_install_view`, `gui_uninstall`) |
 | `docs/MOD_MANIFEST.md` | the contract for a mod's installer |
 | `docs/INSTALL_PATH.md` | installing D2RLoader and the two mods from the launcher: sources, proof, rights, what is missing |
 | `schema/`, `examples/d2rloader-mods/` | the manifest schema; the manifests of the two mods (also the launcher's built-in profiles) |
@@ -58,12 +58,18 @@ Logs from the mod's manifest; **Uninstall** is a button on the card of each inst
 `src/gui_model.*` (tested without a window in `tests/gui_model_test.cpp`); `src/gui_window.cpp` only shows it; `src/gui_main.cpp` is `--play` and `--install-run`.
 
 **Installing and updating (0.3.0).** "Install / update mods..." opens the **install view** (`src/gui_install_view.cpp`, its decisions in `src/gui_install_model.*`): D2RLoader, D2R VR Authentic and D2R VR Unleashed, each
-with what is installed, what is newest (asked on a worker thread: "checking..." never freezes the window), where it comes from and how it is proven, and a box that is ticked when the piece is missing or outdated.
-*Install selected* downloads, checks the hash and installs in turn (D2RLoader first; the two mods through their own Setups, which show their own wizards), with a bar, a step line and a log; *Cancel* stops at the next
+with what is installed, what is newest (asked on a worker thread: "checking..." never freezes the window), where it comes from and how it is proven, and a box that is ticked only when it is a real
+install or update: a missing piece, or a mod with a *proven* newer release. A version that could not be read is never ticked (its button says Update), and a mod that is current - or newer than the newest release
+the site names - is never offered anything (no downgrade, no "repair" tick: to put it in again, uninstall it first). **What is installed** is read, in this order, from the mod's own `vrmod-manifest.json`, from the
+`version` text of a manifest that does not validate (a field this build does not know), from the version resource of the mod's own plugin (the DLL under `d2rloader\plugins` whose Comments say `mod-id=<id>`); else it is
+unknown ([docs/MOD_MANIFEST.md](docs/MOD_MANIFEST.md)). **Each row has its own buttons** beside its Installed / Newest lines: *Install*, *Update* or a greyed *Up to date* (D2RLoader: *Install*, *Repair* when its files differ,
+*Up to date*), which ticks only that piece and installs at once, and *Uninstall* on an installed D2R VR mod (the mod's own uninstaller, as the card's button; D2RLoader has none: it is shared by every mod).
+*Install selected* (on only when something ticked is a real install or update) downloads, checks the hash and installs in turn (D2RLoader first; the two mods through their own Setups, which show their own wizards), with a bar, a step line and a log; *Cancel* stops at the next
 safe point (a Setup wizard that is open is the player's to finish or close). A release without a published checksum (today Authentic's) is installed only after a question whose default is No. A card whose mod has a newer
 release shows an amber "Update available: 0.167.0 -> 0.168.0" and an **Update** button (**Install** when the mod is not installed); the check is one request per source once per start, silent on failure, and the box
 "Check for updates when the launcher starts" (on by default) turns it off. On a first run with no VR mod the view is offered once; the launcher's own Setup offers it on its finish page. All of it, with the pictures
-`docs/screens/install_view_100pct.png`, `install_view_result_100pct.png` and `launcher_update_badges_100pct.png`: [docs/INSTALL_PATH.md](docs/INSTALL_PATH.md), "The window".
+`docs/screens/install_view_100pct.png` (a fresh game), `install_view_installed_current_100pct.png`, `install_view_update_available_100pct.png`, `install_view_plugin_version_100pct.png`, `install_view_result_100pct.png` and
+`launcher_update_badges_100pct.png`: [docs/INSTALL_PATH.md](docs/INSTALL_PATH.md), "The window".
 
 ```
 D2RVRLauncher.exe [--game DIR] [--home DIR] [--select MOD_ID] [--dry-run]
@@ -78,4 +84,5 @@ D2RVRLauncher.exe --install-run loader,authentic,unleashed --game DIR [--accept-
 
 The window stays open after a start unless "Close the launcher when the game starts" is ticked (remembered in settings.json). `python tools/ui_smoke.py <exe> <work folder>`
 starts the exe against a fake game folder and drives it (screenshots at 96 to 192 dpi, dry runs, a real start of a stand-in mod, Enter, close-on-start); `python tools/install_view_smoke.py --exe <exe> --fake-setup <fake_setup.exe> --work <folder>`
-does the same for the install view and the update badges against a local web server and stand-in Setups (no internet); screenshots: `docs/screens/`.
+does the same for the install view and the update badges against a local web server and stand-in Setups (no internet; `--fake-plugins <folder>` adds the stand-in plugin DLLs the build makes for the checks that read a version
+from a plugin); screenshots: `docs/screens/`.

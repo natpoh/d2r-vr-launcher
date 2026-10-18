@@ -238,7 +238,7 @@ ModInstallResult InstallMod(const fs::path& game, const std::string& id, const R
     for (const ModEntry& e : DiscoverMods(game))
         if (e.id == id) {
             res.was_installed = e.installed;
-            res.previous_version = e.installed && e.source == "manifest" ? NormalizeVersion(e.version) : "";
+            res.previous_version = e.installed ? NormalizeVersion(e.found_version) : "";
         }
 
     res.installer = DownloadAndVerify(release, opt.cache_dir, dl, opt.progress, opt.accept_unverified, opt.test_http_host);
@@ -263,7 +263,7 @@ ModInstallResult InstallMod(const fs::path& game, const std::string& id, const R
     for (const ModEntry& e : DiscoverMods(game))
         if (e.id == id) {
             res.installed = e.installed;
-            res.installed_version = e.installed && e.source == "manifest" ? NormalizeVersion(e.version) : "";
+            res.installed_version = e.installed ? NormalizeVersion(e.found_version) : "";
         }
     const std::string ver = res.installed_version.empty() ? std::string() : " " + res.installed_version;
     if (res.exit_code == 0 && res.installed) {
