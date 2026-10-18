@@ -128,6 +128,11 @@ LaunchPlan BuildLaunchPlan(const Manifest& m, const std::string& optionId, const
     }
     p.runtime = rt;
 
+    // ReShade's base folder is chosen by each mod INSIDE its own game process. A copy that reaches the process from the player's environment (setx, a wrapper,
+    // the other mod's earlier start) would send this mod's ReShade into another mod's folder, where it refuses to start (error 1114, an empty headset). So a mod
+    // started by the launcher never inherits it; a manifest rule below may still set it on purpose.
+    if (!m.d2rloader_mod.empty() && p.kind == "exec") p.env_unset.push_back(kReShadeBasePathVar);
+
     // env rules of the store, in order: unset, then set
     for (const EnvRule& r : opt->env) {
         if (!r.stores.empty() && !Has(r.stores, ctx.store)) continue;

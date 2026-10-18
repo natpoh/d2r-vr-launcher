@@ -13,11 +13,17 @@
 //     requirements <id>             does the game folder have what <id> needs (D2RLoader, ...)
 //     launch <id> [--option ID] [--runtime steamvr|vdxr|system|file] [--runtime-file F] [--store steam|battlenet] [--dry-run]
 //     deps verify <zip>             is this file the reviewed D2RLoader archive
+//     releases [--json]             (network) the newest D2R VR Authentic and Unleashed, what --game has, "update available"
+//     install loader|authentic|unleashed --game DIR [--dry-run] [--no-run] [--accept-unverified] [--force] [--json]
+//                                   (network) D2RLoader itself (verified ZIP, unpacked into the game folder, backups, rollback) or a mod through
+//                                   its own Setup; --dry-run says what would be downloaded from where and stops; --no-run downloads and verifies only
 //     version
 //
 // Exit codes: 0 ok; 1 verify found errors; 2 usage; 3 not found; 4 invalid manifest; 10 the game runs; 11 a precondition blocks;
 // 12 a decision is needed (collision, in use, wrong identity); 13 newer schema; 20 I/O error (rolled back); 21 rollback incomplete;
-// 22 an unfinished switch needs `recover`; 23 hash mismatch; 24 OpenXR runtime; 25 not a game folder.
+// 22 an unfinished switch needs `recover`; 23 hash mismatch; 24 OpenXR runtime; 25 not a game folder; 26 damaged or unsafe ZIP; 27 no published
+// checksum and --accept-unverified was not given; 28 a Setup ended with an error; 29 an address or answer from an untrusted server;
+// 30 cancelled; 31 the UAC prompt was declined.
 #pragma once
 
 #include <iosfwd>
@@ -25,8 +31,11 @@
 #include <string>
 #include <vector>
 
-#include "process.h"
+#include "deps.h"
 #include "launch.h"
+#include "net.h"
+#include "process.h"
+#include "setup_run.h"
 #include "util.h"
 
 namespace vrml {
@@ -37,6 +46,10 @@ struct CliEnv {
     ProcessProbe* probe = nullptr;
     LaunchBackend* backend = nullptr;              // null: `launch` can only --dry-run
     RuntimeRoots runtime_roots;
+    // the network and the Setup runner; null: the real ones (WinHTTP, ShellExecute). Tests put fakes here.
+    Downloader* downloader = nullptr;
+    HttpClient* http = nullptr;
+    SetupBackend* setup = nullptr;
 };
 
 int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err, CliEnv& env);

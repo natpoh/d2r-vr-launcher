@@ -1,0 +1,349 @@
+{
+  "schema": "vrmod-manifest/1",
+  "id": "d2r-vr",
+  "name": "D2R VR Authentic",
+  "version": "0.169.0",
+  "publisher": "BodyWalkVR",
+  "homepage": "https://bodywalkvr.com/mods/d2r-vr",
+  "support": "https://discord.gg/kVYjEdJx3e",
+  "license": "MIT",
+  "description": "Diablo II as it is, in VR: the game's own rules, your body and hands.",
+  "icon": "launcher_icon.png",
+  "d2rloader_mod": {
+    "name": "D2R-VR"
+  },
+  "game": {
+    "id": "d2r",
+    "builds": [
+      "3.3.93787"
+    ],
+    "stores": [
+      "steam",
+      "battlenet"
+    ],
+    "processes": [
+      "D2R.exe",
+      "D2RLoader.exe"
+    ]
+  },
+  "requires": [
+    {
+      "id": "d2rloader",
+      "version": "1.3.1-beta",
+      "provider": "launcher",
+      "note": "File hashes of the 1.3.1-beta files unpacked from the reviewed ZIP (x-archive: the two archive hashes both mods' installers accept).",
+      "files": [
+        {
+          "path": "{game}/D2RLoader.exe",
+          "sha256_any_of": [
+            "93021dad48533bcfca8a95c69a0cc00cdb9008a3ce6ceba1d04c7aca71985a10"
+          ]
+        },
+        {
+          "path": "{game}/D2RCore.dll",
+          "sha256_any_of": [
+            "2a868d013d2e0830bd2d9e04b918b19e46a73cf726c833e70d089b948fdeb5a2"
+          ]
+        },
+        {
+          "path": "{game}/d2rloader.mpq",
+          "sha256_any_of": [
+            "1f02aa4e3179cb8a8417125160aa3ef18003ea81ee1a4f54e0a76fd3f22d933b"
+          ]
+        }
+      ],
+      "x-archive": {
+        "url": "https://d2rloader.net/downloads/D2RLoader-1.3.1-beta.zip",
+        "sha256_any_of": [
+          "f7bf0287398890b09bcc68b576327e727304bd88f7be80160f9676e8bd6871e2",
+          "9286c6b5bff7f1043658411dbea305faa9698b6a455e6441668fc6d02c22aad7"
+        ]
+      }
+    }
+  ],
+  "launch": {
+    "options": [
+      {
+        "id": "default",
+        "label": "Play D2R VR Authentic",
+        "kind": "exec",
+        "exe": "{game}/D2R_VR_Settings.exe",
+        "args": [
+          "--start"
+        ],
+        "cwd": "{game}",
+        "via": "auto",
+        "stores": [
+          "steam",
+          "battlenet"
+        ],
+        "runtimes": [
+          "system",
+          "steamvr",
+          "vdxr",
+          "file"
+        ],
+        "env": [
+          {
+            "unset": [
+              "SteamOverlayGameId"
+            ]
+          },
+          {
+            "stores": [
+              "steam"
+            ],
+            "unset": [
+              "SteamAppId",
+              "SteamGameId"
+            ],
+            "set": {
+              "SteamAppId": "2536520",
+              "SteamGameId": "2536520"
+            }
+          },
+          {
+            "stores": [
+              "battlenet"
+            ],
+            "unset": [
+              "SteamAppId",
+              "SteamGameId"
+            ]
+          }
+        ],
+        "x-note": "--start is the START button of D2R VR Settings without the window: D2RLoader.exe -mod D2R-VR, and BodyWalk / FlatVR when the ini asks for them. The runtime picked in the launcher reaches it as XR_RUNTIME_JSON."
+      }
+    ]
+  },
+  "settings_app": {
+    "exe": "{game}/D2R_VR_Settings.exe",
+    "hint": "also in the headset: both grips, then a thumbstick click"
+  },
+  "logs": [
+    "{game}/mods/D2R-VR/d2rloader/logs/d2r-vr-vrcam.log",
+    "{game}/d2rloader/logs/d2r-vr-vrcam.log",
+    "{game}/d2rloader/logs/d2rloader.log",
+    "{game}/mods/D2R-VR/d2rloader/logs/d2r_vr_launch.txt",
+    "{game}/mods/D2R-VR/d2rloader/logs/d2r_vr_start.txt",
+    "{game}/mods/D2R-VR/d2rloader/logs/d2r_vr_crash.txt",
+    "{game}/mods/D2R-VR/reshade/ReShade.log",
+    "{game}/mods/D2R-VR/reshade/FlatVR_DepthProvider.log",
+    "{game}/ReShade.log"
+  ],
+  "update": {
+    "kind": "http-json",
+    "url": "https://bodywalkvr.com/api/version?product=d2r_vr",
+    "opens": "homepage"
+  },
+  "uninstall": {
+    "exe": "{game}/unins000.exe",
+    "args": [
+      "/SILENT"
+    ],
+    "needs_admin": true
+  },
+  "x-mod-files": [
+    {
+      "path": "D2R_VR_LICENSE.txt",
+      "sha256": "1dbf6c1833e4019a861a1d781dedb5fa172f581839af1318a3b62fc6a820b2a7",
+      "optional": false
+    },
+    {
+      "path": "d2rloader/d2r_vr_libs/d2r_vr_grip.dll",
+      "sha256": "a2dbc7c881e3366d3cd3bde3a61df7f6c53947aa04acd3a9450d1498a416787f",
+      "optional": true
+    },
+    {
+      "path": "d2rloader/d2r_vr_libs/d2r_vr_weight.dll",
+      "sha256": "5821dc215c0813c549c3c6284cc885c111ca31a0fca7ff0a26fdef855c7b8689",
+      "optional": true
+    },
+    {
+      "path": "d2rloader/plugins/d2r_vr.default.ini",
+      "sha256": "ae5fc5adf9beb2da32308634c00a0d04f4c0205d500bda7d4883c849db0f5ac6",
+      "optional": false
+    },
+    {
+      "path": "d2rloader/plugins/d2r_vr.ini",
+      "sha256": "ae5fc5adf9beb2da32308634c00a0d04f4c0205d500bda7d4883c849db0f5ac6",
+      "optional": false,
+      "user_edits": true
+    },
+    {
+      "path": "d2rloader/plugins/d2rl-vrcam.dll",
+      "sha256": "fd107d728edb8c3ce022ddd1a64d5e4867ff2e9e85b601a5da8b78097cbef0ca",
+      "optional": false
+    },
+    {
+      "path": "reshade/FlatVR_DepthProvider.addon64",
+      "sha256": "5004761b1309ee9e397255221457a44f8ac4ac0af2e99a9cafd66877a79111d6",
+      "optional": true
+    },
+    {
+      "path": "reshade/FlatVR_Keepalive.addonfx",
+      "sha256": "9005911e087903d3ff712c32b98fceb4a043141af0a797ce668907482f3bc6b5",
+      "optional": true
+    },
+    {
+      "path": "reshade/reshade-shaders/Shaders/D2R_DepthFog.fx",
+      "sha256": "c0c23f29725d7e2b162fa94f4557135322ded2254368e491134d548cc6c9d4fa",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Ceiling_act1_barracks_smooth.png",
+      "sha256": "835c034e4f2d7c395e4be06ee8cdbb54e99229a6ffccd91fb8ee91f866f6f9fb",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Ceiling_act1_caves_walls.png",
+      "sha256": "ce3f2d3e75e1244c53b4cd94b14fa9484e4ad6dfa6a26a0131620d96bd2b4e93",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Ceiling_act1_crypt.png",
+      "sha256": "af955d685cc59c2a9a6bdfe191adaa7d234539f0e365ef18b2b3a1ca2ec0b7a8",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Ceiling_act1_crypt_smooth.png",
+      "sha256": "fd749541ae4e81ae0bd2ec081c6f67961e1680a43321c38fab58d5c14166bd17",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Ceiling_act2_palace.png",
+      "sha256": "fedd279e9dfafc2677980f5882bfe2f2f4c0ed0638496b25d065624184dbbb01",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Ceiling_act2_sewer_brick_grey.png",
+      "sha256": "5501466db3f967723acc1fe2724fd14b462fc259a8374705a076c427f35a84f6",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Crosshair.png",
+      "sha256": "5f013062806442a606b6ac881fab3574f0ead7b1f6de7ba2fc0a20b8e35db657",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Sky_act1.png",
+      "sha256": "a3b8777a7ac8e39a4ea0a7892046c0a3044a8163d6150b84e36f64c7f71a0dbb",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Sky_act2.png",
+      "sha256": "fa5b57419936feaa670f5eb661d71267f824db38466a1e6528c1a584c082ae4f",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Sky_act3.png",
+      "sha256": "03dfcee1c0ed868b774d00d1d34b07d9a08d433a3f98185bf680784844d5a38b",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Sky_act4.png",
+      "sha256": "6bd6dea301caefcea5804598e6825635f01ac532cbc3bc4b12767197203df4bf",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Sky_act5.png",
+      "sha256": "458689a0264af29f444b9a71535a1b9cb09dc83a0c6104d2f26cb7763d4ee44a",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_Sky_snow.png",
+      "sha256": "306046c126d0245715d8e2d5aed5752aa031af73ca8db539018fdb77075aa99c",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCap_act1.png",
+      "sha256": "d9bd1ec0d42ef11c1c8b95d77f0eb92a6146f1a6fd83f541c0aca3ecad12292b",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCap_act2.png",
+      "sha256": "fc919b9a13e68d542fb4382db230ba1c201cedf18fb8db9098156b72904de224",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCap_act3.png",
+      "sha256": "d5d2cbe00b012c5e15bb105a51a9cab0cb370b743fd7ff093b0cc1ef574a9efd",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCap_act4.png",
+      "sha256": "b833ddc89424a7aff57cee64352074a4ae0f1edafd6e438d817e4fecf7da9b38",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCap_act5.png",
+      "sha256": "28989b9836fc732881b78c76e9cae3b9c42a0aee73549a8a1fcf8af1ec1b85e6",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCap_snow.png",
+      "sha256": "83a24415893367dcf9781280a23a2e4b2f1f4a7c9b91448365a47e095b3d23b0",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCapNight_act1.png",
+      "sha256": "df7980681ecc794af8e00753239a2e68732bbcbe8825637ecf174f427118f56e",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCapNight_act2.png",
+      "sha256": "b6628818ce1f23222c94f9796dc402633c8163742c261abf9676d946e8d7445a",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCapNight_act3.png",
+      "sha256": "b3c73e24140d43401448060954b66f9074a75aa6efc054f8a1d769700f85a92f",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCapNight_act4.png",
+      "sha256": "cae1432971fa1963a0ef70d8caa3ee5a54178c9c6ef2c2387887ac7870d08a99",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCapNight_act5.png",
+      "sha256": "a7e3c2f72d2a203fc594f069d758bc96800c196938e3357a94afba9814916a9b",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyCapNight_snow.png",
+      "sha256": "b105c542de66104850b8a9aab9e42c74e848f6965f09f7546e502a01757d343c",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyNight_act1.png",
+      "sha256": "efe58f0eb7d3fe1fea17772958bb3624b01923343faf8b62fb0aae8adfcd9090",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyNight_act2.png",
+      "sha256": "f34d105d08b89b7364c9f40811c70edf1c09dc9e00da126f434be735f72fef2e",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyNight_act3.png",
+      "sha256": "0dfd7328e5e13fab83bd4308b9919e05cc258b9d9838b4438811bf97b7109bc6",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyNight_act4.png",
+      "sha256": "8d9402db56ad775b14f054a26cd91fbec79f600d3d79ed01b10ced7ea17eb763",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyNight_act5.png",
+      "sha256": "d3552501ac12f38401fa9cd4c483ec6f70930a7f0643b55343e261bb85710ba5",
+      "optional": false
+    },
+    {
+      "path": "reshade/reshade-shaders/Textures/D2R_Sky_ours/D2R_SkyNight_snow.png",
+      "sha256": "7fd573e823600f3a1b9026e4fdea16b2e960a8b667fad430269c9492be617db4",
+      "optional": false
+    }
+  ]
+}

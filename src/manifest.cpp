@@ -219,8 +219,8 @@ bool ParseManifest(const Json& j, Manifest* out, std::vector<Issue>* issues) {
 
     if (!Obj(v, &j, "", true)) return false;
     KnownKeys(v, j, "", {"schema", "id", "name", "version", "edition", "publisher", "homepage", "support", "license", "description", "build",
-                         "game", "exclusive_group", "identity", "requires", "files", "external", "settings_app", "settings_hint", "launch",
-                         "hooks", "preconditions", "import", "logs", "update", "uninstall"});
+                         "game", "exclusive_group", "d2rloader_mod", "icon", "identity", "requires", "files", "external", "settings_app",
+                         "settings_hint", "launch", "hooks", "preconditions", "import", "logs", "update", "uninstall"});
 
     m.schema = Str(v, j, "schema", "", true);
     if (!m.schema.empty() && m.schema != kManifestSchema)
@@ -236,8 +236,26 @@ bool ParseManifest(const Json& j, Manifest* out, std::vector<Issue>* issues) {
     m.support = Str(v, j, "support", "", false);
     m.license = Str(v, j, "license", "", false);
     m.description = Str(v, j, "description", "", false);
-    m.group = Str(v, j, "exclusive_group", "", true);
+    // A D2RLoader mod is started with `D2RLoader.exe -mod <name>`: it has no files to swap and no exclusive group.
+    if (const Json* dm = j.find("d2rloader_mod")) {
+        if (Obj(v, dm, "/d2rloader_mod", false)) {
+            KnownKeys(v, *dm, "/d2rloader_mod", {"name"});
+            m.d2rloader_mod = Str(v, *dm, "name", "/d2rloader_mod", true);
+            const std::string& n = m.d2rloader_mod;
+            bool ok = !n.empty() && n.size() <= 64 && std::isalnum(static_cast<unsigned char>(n[0]));
+            for (char c : n) ok = ok && (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.');
+            if (!n.empty() && !ok) v.add("/d2rloader_mod/name", "a D2RLoader mod folder name: letters, digits, '-', '_' and '.', up to 64 characters");
+        }
+    }
+    const bool isMod = !m.d2rloader_mod.empty();
+    m.group = Str(v, j, "exclusive_group", "", !isMod);
     if (!m.group.empty() && !IdOk(m.group, 1, 60)) v.add("/exclusive_group", "lower-case letters, digits and '-'");
+    if (isMod && !m.group.empty()) v.add("/exclusive_group", "a D2RLoader mod is not swapped: leave it out");
+    m.icon = Str(v, j, "icon", "", false);
+    if (!m.icon.empty()) {
+        const bool bad = m.icon.find("..") != std::string::npos || m.icon[0] == '/' || m.icon[0] == '\\' || m.icon.find(':') != std::string::npos;
+        if (bad) v.add("/icon", "a file name or a relative path inside the mod's folder");
+    }
 
     if (const Json* b = j.find("build")) {
         if (Obj(v, b, "/build", false)) {
@@ -310,7 +328,9 @@ bool ParseManifest(const Json& j, Manifest* out, std::vector<Issue>* issues) {
 
     // ---- files
     const Json* fl = j.find("files");
-    if (!fl) v.add("/files", "required");
+    if (!fl && !isMod) v.add("/files", "required");
+    else if (fl && isMod) v.add("/files", "a D2RLoader mod is installed by its own installer and not swapped: leave files out");
+    else if (!fl) {}
     else if (!fl->is_array()) v.add("/files", "must be an array");
     else {
         if (fl->items().empty()) v.add("/files", "a mod without files has nothing to activate");
@@ -388,10 +408,11 @@ bool ParseManifest(const Json& j, Manifest* out, std::vector<Issue>* issues) {
     if (const Json* sa = j.find("settings_app")) {
         if (!sa->is_null()) {
             if (Obj(v, sa, "/settings_app", false)) {
-                KnownKeys(v, *sa, "/settings_app", {"exe", "args", "requires_active", "hint"});
+                KnownKeys(v, *sa, "/settings_app", {"exe", "args", "requires_active", "hint", "label"});
                 m.settings_exe = Str(v, *sa, "exe", "/settings_app", true);
                 StrList(v, *sa, "args", "/settings_app");
                 Bool(v, *sa, "requires_active", "/settings_app", true);
+                m.settings_label = Str(v, *sa, "label", "/settings_app", false);
                 m.has_settings_app = true;
             }
         }

@@ -1,0 +1,6 @@
+// Made by CMake from examples/d2rloader-mods/*/vrmod-manifest.json - do not edit. The launcher's built-in profiles of the two VR mods it knows.
+#pragma once
+namespace vrml {
+inline const char kBuiltinD2rVr[] = R"VRMOD(@VRML_BUILTIN_D2R_VR@)VRMOD";
+inline const char kBuiltinD2rPcvr[] = R"VRMOD(@VRML_BUILTIN_D2R_PCVR@)VRMOD";
+}  // namespace vrml

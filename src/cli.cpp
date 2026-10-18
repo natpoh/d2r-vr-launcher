@@ -5,9 +5,11 @@
 #include <set>
 #include <sstream>
 
+#include "cli_install.h"
 #include "deps.h"
 #include "engine.h"
 #include "game.h"
+#include "mods.h"
 #include "registry.h"
 #include "sha256.h"
 
@@ -71,7 +73,7 @@ struct Args {
 };
 
 Args ParseArgs(const std::vector<std::string>& a) {
-    static const std::set<std::string> kValue = {"--home", "--game", "--option", "--runtime", "--runtime-file", "--store", "--from"};
+    static const std::set<std::string> kValue = {"--home", "--game", "--option", "--runtime", "--runtime-file", "--store", "--from", "--pin-file"};
     Args r;
     for (size_t i = 0; i < a.size(); ++i) {
         if (StartsWith(a[i], "--")) {
@@ -89,10 +91,18 @@ Args ParseArgs(const std::vector<std::string>& a) {
     return r;
 }
 
+struct NoBackend : LaunchBackend {
+    bool Start(const LaunchPlan&, const std::map<std::string, std::string>&, std::string* error) override {
+        if (error) *error = "no launch backend";
+        return false;
+    }
+};
+
 const char* kUsage =
     "usage: vrmodlauncher [--home DIR] [--game DIR] [--json] <command>\n"
-    "  list | status | register <manifest> | unregister <id> | activate <id> | deactivate <id|group> | verify | recover |\n"
-    "  import <id> | import-settings <id> --from DIR | requirements <id> | launch <id> | deps verify <zip> | version\n";
+    "  mods | launch <mod> | list | status | register <manifest> | unregister <id> | activate <id> | deactivate <id|group> | verify | recover |\n"
+    "  import <id> | import-settings <id> --from DIR | requirements <id> | launch <id> | deps verify <zip> | version |\n"
+    "  releases [--json] | install loader|authentic|unleashed [--dry-run] [--no-run] [--accept-unverified] [--force]\n";
 
 fs::path NeedGame(const Args& a, const CliEnv& env) {
     std::string g = a.get("--game");
@@ -127,6 +137,21 @@ int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
         else home = env.default_home.empty() ? DefaultHome(env.env) : env.default_home;
 
         Logger log(home / "logs" / "launcher.log");
+
+        if (cmd == "releases" || cmd == "install") {      // the network commands (cli_install.cpp)
+            InstallCliArgs ia;
+            ia.pos = a.pos;
+            ia.game = a.get("--game").empty() ? EnvGet(env.env, "VRMOD_GAME") : a.get("--game");
+            if (cmd == "install" && ia.game.empty()) Throw("E_USAGE", "which game folder? give --game DIR (or set VRMOD_GAME)");
+            ia.pin_file = a.get("--pin-file");
+            ia.json = json;
+            ia.dry_run = a.flag("--dry-run");
+            ia.no_run = a.flag("--no-run");
+            ia.accept_unverified = a.flag("--accept-unverified");
+            ia.force = a.flag("--force");
+            return cmd == "releases" ? RunReleasesCommand(ia, out, err, env) : RunInstallCommand(ia, out, err, env, home, log);
+        }
+
         Services svc;
         svc.probe = env.probe;
         svc.log = &log;
@@ -164,6 +189,51 @@ int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
             else if (recs.empty()) out << "no mod is registered\n";
             for (const std::string& u : eng.registry().Unregistered())
                 if (!json) out << "  (" << u << ": a package without registration - the installer's last step `register` is missing)\n";
+            return 0;
+        }
+
+        if (cmd == "mods") {
+            const fs::path game = NeedGame(a, env);
+            if (!LooksLikeGame(game)) Throw("E_GAME", U(game) + " has no D2R.exe");
+            const GameInstall gi = DescribeGame(game, "given");
+            const LoaderStatus loader = CheckLoader(game, true);
+            Json arr = Json::Array();
+            const std::vector<ModEntry> mods = DiscoverMods(game);
+            for (const ModEntry& e : mods) {
+                Json o = Json::Object();
+                o.set("id", Json::String(e.id));
+                o.set("folder", Json::String(e.folder));
+                o.set("name", Json::String(e.name));
+                o.set("version", Json::String(e.version));
+                o.set("installed", Json::Bool(e.installed));
+                o.set("source", Json::String(e.source));
+                o.set("launchable", Json::Bool(e.launchable));
+                Json notes = Json::Array();
+                for (const std::string& n : e.notes) notes.push(Json::String(n));
+                o.set("notes", notes);
+                arr.push(o);
+            }
+            if (json) {
+                Json r = Json::Object();
+                r.set("game", Json::String(U(game)));
+                r.set("store", Json::String(gi.store));
+                r.set("build", Json::String(gi.build));
+                Json l = Json::Object();
+                l.set("present", Json::Bool(loader.present));
+                l.set("reviewed", Json::Bool(loader.reviewed));
+                l.set("version", Json::String(loader.version));
+                r.set("d2rloader", l);
+                r.set("mods", arr);
+                out << r.dump();
+                return 0;
+            }
+            out << "game   " << U(game) << "  (" << (gi.store.empty() ? "store unknown" : gi.store) << ", build " << (gi.build.empty() ? "unknown" : gi.build) << ")\n";
+            out << "loader " << (loader.present ? (loader.reviewed ? "D2RLoader " + loader.version + " (reviewed files)" : std::string("D2RLoader present, files not the reviewed 1.3.1-beta ones")) : std::string("D2RLoader.exe is missing")) << "\n";
+            for (const ModEntry& e : mods) {
+                out << (e.installed ? "* " : "  ") << e.id << "  " << e.name << "  " << (e.version.empty() ? "" : e.version + "  ") << "["
+                    << (e.installed ? "installed, " : "not installed, ") << e.source << "]\n";
+                for (const std::string& n : e.notes) out << "    note: " << n << "\n";
+            }
             return 0;
         }
 
@@ -292,6 +362,40 @@ int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
 
         if (cmd == "launch") {
             if (a.pos.size() < 2) Throw("E_USAGE", "launch <id>");
+            // a D2RLoader mod found in the game folder (or a built-in profile): started with -mod, nothing is activated or swapped
+            if (!a.get("--game").empty() || !EnvGet(env.env, "VRMOD_GAME").empty()) {
+                const fs::path g = NeedGame(a, env);
+                for (const ModEntry& e : DiscoverMods(g)) {
+                    if (!IEquals(e.id, a.pos[1]) && !IEquals(e.folder, a.pos[1])) continue;
+                    if (!env.probe) Throw("E_USAGE", "no process probe: cannot check that the game is closed");
+                    LauncherSettings ls = LoadSettings(home);
+                    StartRequest req;
+                    req.game = g;
+                    req.mod = e;
+                    req.option = a.get("--option");
+                    req.runtime = a.get("--runtime").empty() ? ls.mods[e.id].runtime : a.get("--runtime");
+                    req.runtime_file = P(a.get("--runtime-file").empty() ? ls.mods[e.id].runtime_file : a.get("--runtime-file"));
+                    req.store = a.get("--store");
+                    req.dry_run = a.flag("--dry-run") || !env.backend;
+                    NoBackend nb;
+                    StartOutcome so = StartMod(req, *env.probe, env.backend ? *env.backend : nb, env.env, env.runtime_roots);
+                    for (const std::string& w : so.warnings) out << "  warning: " << w << "\n";
+                    if (!so.code.empty()) {
+                        err << "error [" << so.code << "]: " << so.message << "\n";
+                        return StartExitCode(so.code);
+                    }
+                    if (req.dry_run) {
+                        out << so.plan.Describe();
+                        return 0;
+                    }
+                    ls.game = U(g);
+                    ls.last_mod = e.id;
+                    SaveSettings(home, ls);
+                    log.Line("started " + e.id + " " + e.version + " (D2RLoader mod " + e.folder + ", option " + so.plan.option + ", runtime " + so.plan.runtime + ", store " + so.plan.store + ")");
+                    out << "started " << e.id << " " << e.version << "\n";
+                    return 0;
+                }
+            }
             recoverFirst();
             Manifest m = eng.registry().Load(a.pos[1]);
             GameState st = eng.LoadState(game);

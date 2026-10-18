@@ -43,6 +43,7 @@ fs::path DepsCache::Ensure(const Pin& pin) {
     std::string err;
     if (!dl_->Fetch(pin.url, tmp, &err)) {
         RemoveQuiet(tmp);
+        if (dl_->WasCancelled()) Throw("E_CANCELLED", "the download of " + pin.file + " was cancelled");
         Throw("E_IO", "could not download " + pin.url + ": " + err);
     }
     if (!Sha256File(tmp, &h) || !HashAccepted(pin.sha256, h)) {

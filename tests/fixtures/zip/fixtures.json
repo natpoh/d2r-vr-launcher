@@ -1,0 +1,25 @@
+{
+  "files": {
+    "readme.txt": "5236df933a53859e8aed1de98d5c2edd24f1b47e4127432ad4c3a6a519a05475",
+    "empty.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "big/text.txt": "8de41a5595e919ca43faed1162d50724ee905dccddf27c3bc549bc9882c70efd",
+    "big/noise.bin": "a736d944444c8f83885129ae5777a8bcad9134878b35d40a6572e44f6814c013",
+    "x/y/z/deep/mixed.bin": "4bc592eb080e9d4e444c6d84ea16111aeae39b42b04640502b56650ff690550c",
+    "x/y/z/one-byte": "4ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260"
+  },
+  "dirs": [
+    "big",
+    "x",
+    "x/y",
+    "x/y/z",
+    "x/y/z/deep",
+    "empty-folder"
+  ],
+  "good": [
+    "stored.zip",
+    "deflate0.zip",
+    "deflate1.zip",
+    "deflate6.zip",
+    "deflate9.zip"
+  ]
+}

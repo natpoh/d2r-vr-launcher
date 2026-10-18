@@ -2,6 +2,7 @@
 #include <iostream>
 
 #include "cli.h"
+#include "mods.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -30,21 +31,6 @@ int main(int argc, char** argv) {
     env.probe = probe.get();
     env.backend = backend.get();
     env.default_home = vrml::DefaultHome(env.env);
-#ifdef _WIN32
-    // where the OpenXR runtimes are looked for
-    for (const char* v : {"ProgramFiles", "ProgramW6432"}) {
-        const std::string pf = vrml::EnvGet(env.env, v);
-        if (!pf.empty() && env.runtime_roots.program_files.empty()) env.runtime_roots.program_files = vrml::P(pf);
-    }
-    // Steam's folder from the registry
-    HKEY k;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", 0, KEY_READ, &k) == ERROR_SUCCESS) {
-        wchar_t buf[MAX_PATH];
-        DWORD n = sizeof buf, type = 0;
-        if (RegQueryValueExW(k, L"SteamPath", nullptr, &type, reinterpret_cast<LPBYTE>(buf), &n) == ERROR_SUCCESS && type == REG_SZ)
-            env.runtime_roots.steam_libraries = vrml::SteamLibraries(std::filesystem::path(buf));
-        RegCloseKey(k);
-    }
-#endif
+    env.runtime_roots = vrml::SystemRuntimeRoots(env.env);   // Program Files and the Steam libraries
     return vrml::RunCli(args, std::cout, std::cerr, env);
 }

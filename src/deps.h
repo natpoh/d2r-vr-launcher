@@ -6,6 +6,8 @@
 // by every mod; the files in the game folder are still checked against what the SELECTED mod needs.
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -28,20 +30,27 @@ const Pin& D2RLoaderPin();
 
 bool HashAccepted(const std::vector<std::string>& accepted, const std::string& hex);   // case-insensitive
 
+// How far a download is: bytes so far and in all (0 = not known). Returning false cancels it.
+using ProgressFn = std::function<bool(uint64_t done, uint64_t total)>;
+
 class Downloader {
 public:
     virtual ~Downloader() = default;
     // Fetch url into `dest` (any partial file is the downloader's to clean). false + *error on failure.
     virtual bool Fetch(const std::string& url, const fs::path& dest, std::string* error) = 0;
+    // Optional: report progress of the next Fetch calls (a downloader that has none ignores it); cancelling makes Fetch fail with WasCancelled().
+    virtual void SetProgress(ProgressFn) {}
+    virtual bool WasCancelled() const { return false; }
 };
 
 class DepsCache {
 public:
     DepsCache(fs::path home, Downloader* dl, Logger* log) : home_(std::move(home)), dl_(dl), log_(log) {}
     fs::path PathOf(const Pin& pin) const { return home_ / "deps" / P(pin.id) / P(pin.file); }
+    Downloader* downloader() const { return dl_; }
     // The verified archive: a cached file whose hash is accepted is reused (no download); a cached file with another hash is
     // deleted and fetched again; a download with another hash is deleted and E_HASH is thrown (nothing else is touched).
-    // Without a downloader and without a good cache: E_NOT_FOUND.
+    // Without a downloader and without a good cache: E_NOT_FOUND. A cancelled download: E_CANCELLED.
     fs::path Ensure(const Pin& pin);
 
 private:

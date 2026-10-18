@@ -33,6 +33,12 @@ void Throw(const std::string& code, const std::string& msg) {
     else if (code == "E_HASH") exit = 23;
     else if (code == "E_RUNTIME") exit = 24;
     else if (code == "E_GAME") exit = 25;
+    else if (code == "E_ARCHIVE") exit = 26;
+    else if (code == "E_UNVERIFIED") exit = 27;
+    else if (code == "E_SETUP") exit = 28;
+    else if (code == "E_UNTRUSTED") exit = 29;
+    else if (code == "E_CANCELLED") exit = 30;
+    else if (code == "E_UAC_DECLINED") exit = 31;
     throw Error(code, exit, msg);
 }
 
@@ -138,6 +144,20 @@ bool IsReparsePoint(const fs::path& p) {
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
 #else
     return false;
+#endif
+}
+
+long long CreationTime(const fs::path& p) {
+#ifdef _WIN32
+    WIN32_FILE_ATTRIBUTE_DATA d{};
+    if (!GetFileAttributesExW(p.c_str(), GetFileExInfoStandard, &d)) return -1;
+    ULARGE_INTEGER t;
+    t.LowPart = d.ftCreationTime.dwLowDateTime;
+    t.HighPart = d.ftCreationTime.dwHighDateTime;
+    return static_cast<long long>(t.QuadPart);
+#else
+    (void)p;
+    return -1;
 #endif
 }
 

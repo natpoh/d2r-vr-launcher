@@ -91,7 +91,9 @@ struct ImportSpec {
 
 struct Manifest {
     std::string schema, id, name, version, edition, publisher, homepage, support, license, description;
-    std::string group;                      // exclusive_group
+    std::string group;                      // exclusive_group (swap mods only)
+    std::string d2rloader_mod;              // the D2RLoader mod folder name ("D2R-VR"): set = a D2RLoader mod, started with -mod, nothing is swapped
+    std::string icon;                       // a picture (PNG/ICO) next to the manifest, for the launcher's window
     std::string game_id;
     std::vector<std::string> builds, stores, processes;
     Identity identity;
@@ -105,8 +107,10 @@ struct Manifest {
     std::vector<std::string> logs;
     bool has_settings_app = false;
     std::string settings_exe, settings_hint;
+    std::string settings_label;             // the name on the window's settings button ("D2R VR Authentic Settings"); empty: "<mod name> Settings"
     fs::path dir;                           // the folder the manifest was loaded from (the package)
     Json raw;
+    bool is_d2rloader_mod() const { return !d2rloader_mod.empty(); }
 };
 
 // Parses and validates. Returns true when there are no issues; `m` is filled as far as it could be read.

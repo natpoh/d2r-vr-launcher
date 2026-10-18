@@ -1,0 +1,179 @@
+[
+  {
+    "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/416322375",
+    "html_url": "https://github.com/bearstonem/d2r-pcvr/releases/tag/v0.3.19-windows-preview",
+    "id": 416322375,
+    "tag_name": "v0.3.19-windows-preview",
+    "target_commitish": "a0a4f5fade27c18b3e82e64f02832ba6888a05a6",
+    "name": "D2R VR Unleashed v0.3.19 - Parry hotfix",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-10-18T08:15:35Z",
+    "published_at": "2026-10-18T08:17:11Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/652911415",
+        "id": 652911415,
+        "name": "D2R-PCVR-Setup-0.3.19.exe",
+        "label": "",
+        "content_type": "application/x-msdownload",
+        "state": "uploaded",
+        "size": 46966441,
+        "digest": "sha256:bd37c8642e48d634c8823306776ccf5026b41f28728b492da541f7a669c3580c",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.19-windows-preview/D2R-PCVR-Setup-0.3.19.exe"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/652911413",
+        "id": 652911413,
+        "name": "D2R-PCVR-Setup-0.3.19.exe.sha256",
+        "label": "",
+        "content_type": "application/octet-stream",
+        "state": "uploaded",
+        "size": 92,
+        "digest": "sha256:122a65c1934faa87be72d979bf6f132d3ae2111beaf9be735ebda7816ea922fb",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.19-windows-preview/D2R-PCVR-Setup-0.3.19.exe.sha256"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/652911412",
+        "id": 652911412,
+        "name": "d2r-pcvr-windows.zip",
+        "label": "",
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 37542151,
+        "digest": "sha256:4329b0b905ed0a6ed1e6c6c096f9872dab5a79de94d2fd42164feba2c2d11349",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.19-windows-preview/d2r-pcvr-windows.zip"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/652911411",
+        "id": 652911411,
+        "name": "d2r-pcvr-windows.zip.sha256",
+        "label": "",
+        "content_type": "application/octet-stream",
+        "state": "uploaded",
+        "size": 88,
+        "digest": "sha256:d6f7df226df0734e97c1683856c667d8043f5f000b2b520579c1c1578fa4dc7a",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.19-windows-preview/d2r-pcvr-windows.zip.sha256"
+      }
+    ],
+    "body": "# D2R VR Unleashed v0.3.19 - Windows preview\r\n\r\nThis hotfix focuses on making physical shield parries more reliable and responsive\r\nin Unleashed combat.\r\n\r\n## Gameplay and combat\r\n\r\n- **More forgiving shield parries:** A deliberate diagonal shield sweep now has\r\n  a 750 ms parry window and can begin shortly before an enemy starts attacking.\r\n  Turning your shield edge-on during the sweep no longer rejects an otherwise\r\n  valid parry. Keep the shield raised toward the nearby attacker.\r\n- **Immediate parry feedback:** A valid parry staggers the enemy as soon as your\r\n  sweep and its attack have both begun, instead of waiting for the hit to land.\r\n  Attacks that would miss their normal hit roll"
+  },
+  {
+    "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/416263652",
+    "html_url": "https://github.com/bearstonem/d2r-pcvr/releases/tag/v0.3.18-windows-preview",
+    "id": 416263652,
+    "tag_name": "v0.3.18-windows-preview",
+    "target_commitish": "fca648d0f3b33eeae75314f0777d377be3acce96",
+    "name": "D2R VR Unleashed v0.3.18 - Windows preview",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-10-18T05:52:49Z",
+    "published_at": "2026-10-18T05:55:11Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/652623079",
+        "id": 652623079,
+        "name": "D2R-PCVR-Setup-0.3.18.exe",
+        "label": "",
+        "content_type": "application/x-msdownload",
+        "state": "uploaded",
+        "size": 46962000,
+        "digest": "sha256:028b17c32c31911c27dcb9afcc2259909b6f169db6476acb674301d3422bc0c0",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.18-windows-preview/D2R-PCVR-Setup-0.3.18.exe"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/652623076",
+        "id": 652623076,
+        "name": "D2R-PCVR-Setup-0.3.18.exe.sha256",
+        "label": "",
+        "content_type": "application/octet-stream",
+        "state": "uploaded",
+        "size": 92,
+        "digest": "sha256:2b86787d5cf92d37339601be7d12c8948ad24bfa756e0bf976e5cea81db6afa2",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.18-windows-preview/D2R-PCVR-Setup-0.3.18.exe.sha256"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/652623075",
+        "id": 652623075,
+        "name": "d2r-pcvr-windows.zip",
+        "label": "",
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 37539681,
+        "digest": "sha256:3ffadee726b4307a084130abaa8aa7a5b82d8335a78987da71b2f7e361456ee0",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.18-windows-preview/d2r-pcvr-windows.zip"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/652623073",
+        "id": 652623073,
+        "name": "d2r-pcvr-windows.zip.sha256",
+        "label": "",
+        "content_type": "application/octet-stream",
+        "state": "uploaded",
+        "size": 88,
+        "digest": "sha256:d3bd238b5fa9d46fa6e15740deaf7e552184021e8f9bb0503abbc010695a2cd2",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.18-windows-preview/d2r-pcvr-windows.zip.sha256"
+      }
+    ],
+    "body": "# D2R VR Unleashed v0.3.18 - Windows preview\r\n\r\nThis update focuses on physical combat and shield defense, wrist information,\r\nquicker item and skill selection, and more complete first-person environments.\r\n\r\n## Gameplay and combat\r\n\r\n- **Unleashed combat - contributed by ChuckRibbits:** Physical swings still\r\n  connect with every enemy they reach, while damage now reflects attack rating\r\n  against enemy defense, recovery between strikes, and reduced damage to later\r\n  targets in a cleave. Increased Attack Speed helps recovery. Deliberate,\r\n  well-timed blows are more effective than rapid flailing. Classic remains\r\n  available under **VR Settings > Combat > Melee rules**.\r\n- **Physical shiel"
+  },
+  {
+    "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/415573494",
+    "html_url": "https://github.com/bearstonem/d2r-pcvr/releases/tag/v0.3.17-windows-preview",
+    "id": 415573494,
+    "tag_name": "v0.3.17-windows-preview",
+    "target_commitish": "14d9e09233a6cd8b93d5e95e1544e34d6fdc7e68",
+    "name": "D2R VR Unleashed v0.3.17 - Bow skills, mercenaries and world fixes",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-10-17T04:00:49Z",
+    "published_at": "2026-10-17T04:04:32Z",
+    "assets": [
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/649484398",
+        "id": 649484398,
+        "name": "D2R-PCVR-Setup-0.3.17.exe",
+        "label": "",
+        "content_type": "application/x-msdownload",
+        "state": "uploaded",
+        "size": 46706574,
+        "digest": "sha256:7a7d5b3a2bbc818b5c087b5ec2c6532e9ae04ff51a20ddd0f277f16d203c56be",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.17-windows-preview/D2R-PCVR-Setup-0.3.17.exe"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/649484401",
+        "id": 649484401,
+        "name": "D2R-PCVR-Setup-0.3.17.exe.sha256",
+        "label": "",
+        "content_type": "application/octet-stream",
+        "state": "uploaded",
+        "size": 92,
+        "digest": "sha256:f5ab0d600e00afc1a8717c8252248fb5f0659abc77ec7c2095460dc52ece10c0",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.17-windows-preview/D2R-PCVR-Setup-0.3.17.exe.sha256"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/649484409",
+        "id": 649484409,
+        "name": "d2r-pcvr-windows.zip",
+        "label": "",
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 37198996,
+        "digest": "sha256:fda377ae77edfefc43302b18e3498bd3b46a3b4b806bf4dd72322f39b00b3cd2",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.17-windows-preview/d2r-pcvr-windows.zip"
+      },
+      {
+        "url": "https://api.github.com/repos/bearstonem/d2r-pcvr/releases/assets/649484400",
+        "id": 649484400,
+        "name": "d2r-pcvr-windows.zip.sha256",
+        "label": "",
+        "content_type": "application/octet-stream",
+        "state": "uploaded",
+        "size": 88,
+        "digest": "sha256:3764a8d669797c27de133cf7b75a1f8a36eff419cf523167cfbb604fb8abf75f",
+        "browser_download_url": "https://github.com/bearstonem/d2r-pcvr/releases/download/v0.3.17-windows-preview/d2r-pcvr-windows.zip.sha256"
+      }
+    ],
+    "body": "# D2R VR Unleashed v0.3.17 - Windows preview\r\n\r\nThis update focuses on physical bow skills, helping your mercenary, world\r\nvisuals, Act III stability and a cleaner installation. D2R PCVR is now presented\r\nas **D2R VR Unleashed**; the repository and download filenames keep the PCVR name.\r\n\r\nDownload **D2R-PCVR-Setup-0.3.17.exe** for graphical installation, or\r\n**d2r-pcvr-windows.zip** for portable setup. Existing users should choose\r\n**Update / repair and keep calibration and video settings**. Keep your existing\r\nhelper folders and setup backups until the update finishes. Full install applies\r\nfresh defaults; use Update / repair to retain your settings and calibration.\r\n\r\nYou need your own pu"
+  }
+]

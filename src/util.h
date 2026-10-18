@@ -21,9 +21,11 @@ struct Error : std::runtime_error {
 // the codes (exit code in brackets)
 //   E_USAGE[2] E_NOT_FOUND[3] E_MANIFEST[4] E_GAME_RUNNING[10] E_PRECONDITION[11] E_COLLISION[12] E_IN_USE[12]
 //   E_IDENTITY[12] E_SCHEMA[13] E_IO[20] E_ROLLBACK[21] E_JOURNAL[22] E_HASH[23] E_RUNTIME[24] E_GAME[25]
+//   E_ARCHIVE[26] (a ZIP that is damaged or unsafe) E_UNVERIFIED[27] (no published checksum and the caller did not accept that)
+//   E_SETUP[28] (a mod's Setup ended with an error) E_UNTRUSTED[29] (an address or an answer from a server the launcher does not trust) E_CANCELLED[30] (the player or the caller stopped a download) E_UAC_DECLINED[31]
 [[noreturn]] void Throw(const std::string& code, const std::string& msg);
 
-constexpr const char* kLauncherVersion = "0.1.0-draft";
+constexpr const char* kLauncherVersion = "0.3.1";   // the window's version resource is read from this line (CMakeLists.txt)
 constexpr const char* kManifestSchema = "vrmod-manifest/1";
 
 // ---- strings and paths (all paths in files are UTF-8 with '/')
@@ -51,6 +53,9 @@ bool Exists(const fs::path& p);
 bool IsFile(const fs::path& p);
 bool IsDir(const fs::path& p);
 bool IsReparsePoint(const fs::path& p);       // a symlink or a junction (never followed by the engine)
+// When a file or folder was created, as the file system says (Windows: FILETIME, 100 ns since 1601); -1 when it cannot be read. A copy or an
+// update that rewrites a file's content keeps it; only a delete and create makes a new one.
+long long CreationTime(const fs::path& p);
 bool ReadFile(const fs::path& p, std::string* out);
 void EnsureDir(const fs::path& dir);
 // Writes to "<p>.vrml-tmp" and renames over p: a reader sees the old or the whole new file, never half.

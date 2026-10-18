@@ -10,6 +10,12 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include "engine.h"
 #include "json.h"
 #include "manifest.h"
@@ -31,6 +37,22 @@ inline void Write(const fs::path& p, const std::string& content) {
     fs::create_directories(p.parent_path());
     std::ofstream f(p, std::ios::binary | std::ios::trunc);
     f << content;
+}
+// Sets the creation time of a file or folder to day `day` of a fixed year (what the launcher orders the mods by); a no-op off Windows.
+inline void SetCreated(const fs::path& p, int day) {
+#ifdef _WIN32
+    ULARGE_INTEGER t;
+    t.QuadPart = 133801632000000000ULL + static_cast<ULONGLONG>(day) * 864000000000ULL;
+    FILETIME ft{t.LowPart, t.HighPart};
+    HANDLE h = CreateFileW(p.c_str(), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        SetFileTime(h, &ft, nullptr, nullptr);
+        CloseHandle(h);
+    }
+#else
+    (void)p;
+    (void)day;
+#endif
 }
 inline std::string Read(const fs::path& p) {
     std::string s;

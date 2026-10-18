@@ -1,0 +1,179 @@
+{
+  "schema": "vrmod-manifest/1",
+  "id": "d2r-pcvr",
+  "name": "D2R VR Unleashed",
+  "version": "0.3.19",
+  "publisher": "bearstonem",
+  "homepage": "https://github.com/bearstonem/d2r-pcvr",
+  "support": "https://github.com/bearstonem/d2r-pcvr/issues",
+  "license": "MIT",
+  "description": "Diablo II reimagined for physical, immersive VR.",
+  "d2rloader_mod": {
+    "name": "D2R-PCVR"
+  },
+  "game": {
+    "id": "d2r",
+    "builds": [
+      "3.3.93787",
+      "3.3.93847"
+    ],
+    "stores": [
+      "steam",
+      "battlenet"
+    ],
+    "processes": [
+      "D2R.exe",
+      "D2RLoader.exe"
+    ],
+    "x-builds-by-store": {
+      "steam": "3.3.93787",
+      "battlenet": "3.3.93847 (experimental: offline testing)"
+    }
+  },
+  "requires": [
+    {
+      "id": "d2rloader",
+      "version": "1.3.1-beta",
+      "provider": "launcher",
+      "note": "File hashes of the 1.3.1-beta files unpacked from the reviewed ZIP, as his steamvr/evidence/2026-10-13-loader-archive-repack.json lists them. x-archive: the 2 archive hashes his install.py accepts.",
+      "files": [
+        {
+          "path": "{game}/D2RLoader.exe",
+          "sha256_any_of": [
+            "93021dad48533bcfca8a95c69a0cc00cdb9008a3ce6ceba1d04c7aca71985a10"
+          ]
+        },
+        {
+          "path": "{game}/D2RCore.dll",
+          "sha256_any_of": [
+            "2a868d013d2e0830bd2d9e04b918b19e46a73cf726c833e70d089b948fdeb5a2"
+          ]
+        },
+        {
+          "path": "{game}/d2rloader.mpq",
+          "sha256_any_of": [
+            "1f02aa4e3179cb8a8417125160aa3ef18003ea81ee1a4f54e0a76fd3f22d933b"
+          ]
+        }
+      ],
+      "x-archive": {
+        "url": "https://d2rloader.net/downloads/D2RLoader-1.3.1-beta.zip",
+        "sha256_any_of": [
+          "f7bf0287398890b09bcc68b576327e727304bd88f7be80160f9676e8bd6871e2",
+          "9286c6b5bff7f1043658411dbea305faa9698b6a455e6441668fc6d02c22aad7"
+        ]
+      }
+    }
+  ],
+  "launch": {
+    "options": [
+      {
+        "id": "default",
+        "label": "Play D2R VR Unleashed",
+        "kind": "exec",
+        "exe": "{game}/D2RLoader.exe",
+        "args": [
+          "-mod",
+          "D2R-PCVR"
+        ],
+        "cwd": "{game}",
+        "via": "auto",
+        "stores": [
+          "steam",
+          "battlenet"
+        ],
+        "runtimes": [
+          "system",
+          "steamvr",
+          "vdxr",
+          "file"
+        ],
+        "env": [
+          {
+            "unset": [
+              "SteamOverlayGameId"
+            ]
+          },
+          {
+            "stores": [
+              "steam"
+            ],
+            "unset": [
+              "SteamAppId",
+              "SteamGameId"
+            ],
+            "set": {
+              "SteamAppId": "2536520",
+              "SteamGameId": "2536520"
+            }
+          },
+          {
+            "stores": [
+              "battlenet"
+            ],
+            "unset": [
+              "SteamAppId",
+              "SteamGameId"
+            ]
+          }
+        ],
+        "x-note": "The same command his steamvr/launch_windows.py ends in: D2RLoader.exe -mod D2R-PCVR, started in the game folder. Runtimes as in his wrapper: system = none of its flags (the active OpenXR runtime), steamvr = --frame-openxr-runtime=<SteamVR>/steamxr_win64.json, vdxr = --frame-vdxr (Virtual Desktop Streamer/OpenXR/virtualdesktop-openxr.json under Program Files), file = --frame-openxr-runtime=<manifest>. The launcher hands the chosen one to the child as XR_RUNTIME_JSON, which is what his launch_environment sets. His wrapper hands a Steam start over to Explorer's desktop (Steam only, because Steam's overlay injects into the process chain of a launch option, and Battle.net is started directly). The launcher starts the game from its own desktop process, never from Steam's launch-option chain, so it does not use that hand-off."
+      }
+    ]
+  },
+  "logs": [
+    "{game}/mods/D2R-PCVR/d2rloader/logs/d2r-vr-frame.log",
+    "{game}/mods/D2R-PCVR/d2rloader/logs/d2r-pcvr-vrcam.log",
+    "{game}/d2rloader/logs/d2r-pcvr-vrcam.log",
+    "{game}/d2rloader/logs/d2rloader.log",
+    "{game}/d2rloader/logs/pcvr-launch.log",
+    "{game}/mods/D2R-PCVR/reshade/ReShade.log"
+  ],
+  "update": {
+    "kind": "github-release",
+    "repo": "bearstonem/d2r-pcvr",
+    "tag": "v*-windows-preview"
+  },
+  "uninstall": {
+    "exe": "{localappdata}/Programs/D2R PCVR/unins000.exe",
+    "needs_admin": false
+  },
+  "x-source": {
+    "repo": "https://github.com/bearstonem/d2r-pcvr",
+    "commit": "a0a4f5fade27c18b3e82e64f02832ba6888a05a6",
+    "release_tag": "v0.3.19-windows-preview",
+    "installer_app_id": "D2R-PCVR-Native-Windows",
+    "read_with": "git show <commit>:<path> only, none of his code was run",
+    "files": [
+      "steamvr/mod_identity.py",
+      "steamvr/launch_windows.py",
+      "steamvr/prepare_dev_scenarios.py",
+      "steamvr/game_install.py",
+      "steamvr/install.py",
+      "steamvr/steam_config.py",
+      "installer/D2R_PCVR_Setup.iss",
+      "vr/pcvr_identity.h",
+      "LICENSE",
+      "steamvr/evidence/2026-10-13-loader-archive-repack.json",
+      "docs/MOD_COEXISTENCE.md",
+      "docs/AGENT_WORKFLOW.md",
+      "installer/README.md",
+      "installer/smoke_native_installer.ps1"
+    ]
+  },
+  "x-unverified": {
+    "icon": "left out because no Unleashed artwork exists. For a picture put a PNG or ICO next to this file and add \"icon\": \"launcher_icon.png\". Without one the launcher shows a neutral placeholder.",
+    "game.builds": "a flat list. Steam 3.3.93787 is the build his releases are verified on, Battle.net 3.3.93847 is experimental (his wrapper wants --experimental-battlenet). The manifest cannot say which build belongs to which store (see x-builds-by-store).",
+    "launch.options[0].via": "not run. His wrapper always goes through Explorer's desktop for Steam, the launcher does not (it starts from its own desktop process). Whether that is enough against Steam's overlay injection is untested.",
+    "launch.options[0]": "his wrapper also passes on whatever else is in Steam's launch command after D2R.exe, and the Steam shortcut has the OpenVR flag set for SteamVR. The launcher passes neither.",
+    "developer mode": "his wrapper's --frame-dev (Launch-Dev-SteamVR.cmd, steamvr/DEVELOPMENT_SCENARIOS.md) stages a second D2RLoader mod of its own, mods\\pcvr-dev, and starts that one with an offline test character. The launcher has no such option. A mods\\pcvr-dev folder, once it exists, is listed by the launcher as a plain D2RLoader mod and started with -mod pcvr-dev alone (his docs say that route works too for a prepared environment), without the environment rules above.",
+    "launch.options[0].runtimes": "steamvr: the launcher finds SteamVR's steamxr_win64.json through Steam's libraries (his Battle.net shortcut gets the folder from setup). vdxr and system are as in his wrapper. Nothing was started with a headset.",
+    "logs": "d2r-pcvr-vrcam.log is D2RLoader's startup log of the plugin. Whether a mod's plugin writes it to mods\\D2R-PCVR\\d2rloader\\logs or to the global d2rloader\\logs is not stated in his files, so both are listed. The same goes for ReShade.log: his docs say 'game root' for the old layout, with RESHADE_BASE_PATH_OVERRIDE it should be mods\\D2R-PCVR\\reshade. pcvr-launch.log is written only by his Explorer hand-off, not when the launcher starts the game. A file that does not exist should just be skipped.",
+    "uninstall": "Inno's default unins000.exe in {app} = {localappdata}\\Programs\\D2R PCVR (his smoke test uses that name). Only the EXE installer has it, not the ZIP / portable setup. /SILENT is left out on purpose: his uninstaller asks (ConfirmUninstall) and removes the mod from every Steam and Battle.net copy it manages. PrivilegesRequired=lowest, so no admin rights.",
+    "publisher": "bearstonem is the plugin's author (D2RPCVR_AUTHOR), his installer script says 'D2R PCVR contributors'. The license is his LICENSE: MIT, with BodyWalkVR's copyright line.",
+    "update": "tag pattern from his tags and installer/README.md. Whether GitHub marks his releases as pre-releases (this decides whether releases/latest finds them) is not in the repository.",
+    "settings_app": "none, docs/MOD_COEXISTENCE.md says the legacy settings editor is not part of the native Windows package. Settings are mods\\D2R-PCVR\\d2rloader\\plugins\\d2r_pcvr.ini.",
+    "requires[0].files": "the three hashes are the ones in his steamvr/evidence/2026-10-13-loader-archive-repack.json (identical_payloads), not recomputed from the ZIP here. His install.py checks only the archive hashes.",
+    "everything": "read at the commit in x-source. No game, installer, headset or code of his was run."
+  }
+}

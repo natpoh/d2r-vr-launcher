@@ -4,7 +4,7 @@
   "title": "VR mod manifest, schema vrmod-manifest/1",
   "description": "What a mod for the shared VR mod launcher declares: everything it puts in the game folder (plugin, ini, shaders, textures, ReShade configuration, an OpenXR loader), what it needs, how it is started. The launcher's C++ validator (src/manifest.cpp) enforces this and a few rules JSON Schema cannot say: no duplicate dst, a folder src goes with a folder dst, the package on disk matches. Keys starting with x- are free for extensions.",
   "type": "object",
-  "required": ["schema", "id", "name", "version", "game", "exclusive_group", "files"],
+  "required": ["schema", "id", "name", "version", "game"],
   "additionalProperties": false,
   "patternProperties": { "^x-": {} },
   "properties": {
@@ -37,6 +37,14 @@
       }
     },
     "exclusive_group": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,59}$" },
+    "d2rloader_mod": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "patternProperties": { "^x-": {} },
+      "properties": { "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" } }
+    },
+    "icon": { "type": "string", "pattern": "^(?!.*\\.\\.)(?![/\\\\])[^:]+$" },
     "identity": {
       "type": "object",
       "additionalProperties": false,
@@ -126,7 +134,8 @@
         "exe": { "$ref": "#/definitions/text" },
         "args": { "type": "array", "items": { "type": "string" } },
         "requires_active": { "type": "boolean" },
-        "hint": { "type": "string" }
+        "hint": { "type": "string" },
+        "label": { "$ref": "#/definitions/text" }
       }
     },
     "settings_hint": { "type": "string" },

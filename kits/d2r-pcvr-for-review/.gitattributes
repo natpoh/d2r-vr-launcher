@@ -1,0 +1,3 @@
+# The patch and the manifest are sent to someone else and must stay byte for byte as written: LF, whatever the checkout's autocrlf says.
+*.diff text eol=lf
+*.json text eol=lf

@@ -1,0 +1,570 @@
+install-patch-proposal.diff - a PROPOSAL for bearstonem/d2r-pcvr, for you to read and change as you like.
+It is NOT applied and your tests were NOT run: it was written against the files of origin/main at a0a4f5f
+(v0.3.19), as they read in git, and only checked to apply without fuzz to copies of those files (patch --fuzz=0 -p1),
+for the patched Python and PowerShell to parse, and for the patched Inno script to compile with a dummy payload.
+
+Part 1: the launcher's descriptor of your mod, written with the mod
+  vrmod-manifest.json                  new file at the repo root (beside d2r_pcvr.ini)
+  steamvr/install.py                   puts it into mods\D2R-PCVR\ like the plugin and modinfo.json (payload; journaled, so a
+                                       restore / removal takes it away; nothing is written outside your own mod folder)
+  steamvr/package.py                   adds it to the release ZIP's file list
+  installer/stage_native_installer.py  adds it to the installer's allowlist (ROOT_FILES)
+  steamvr/mod_identity_test.py         a test that its version, id and names agree with the release (and that both lists carry it)
+  steamvr/install_test.py              two lines: it is there after install, gone after restore
+  docs/RELEASING.md                    step 2 of the release checklist names the manifest's version beside the other version places
+
+Part 2: the D2R VR Launcher inside your installer (optional, nothing changes without the two new build parameters)
+  installer/build_native_installer.ps1 -LauncherSetup <D2R_VR_Launcher_Setup_x.y.z.exe> -LauncherSetupSha256 <pin>: checks name and pin,
+                                       hands the file to the staging script, passes three defines to the Inno compiler, records it in .build.json
+  installer/stage_native_installer.py  stages that one file, unmodified, as launcher\<name> in the payload (exact name, pinned hash,
+                                       listed in the payload's release-manifest.json so /PAYLOADCHECK covers it)
+  installer/stage_native_installer_test.py   wrong pin, wrong name and the good case
+  installer/D2R_PCVR_Setup.iss         only when the defines are given: at the start of the post-install step, if HKCU\Software\D2R VR
+                                       Launcher shows no launcher (or no program) or an older one, and the file still has the pinned hash,
+                                       run it silently as the original user, log the exit code and ignore it. Your wizard is untouched.
+  installer/README.md                  a paragraph on it
+Per release: the "version" in vrmod-manifest.json (the new test fails when it lags behind), and the launcher pin when you take a newer launcher.
+Apply with:  git apply install-patch-proposal.diff     (or: patch -p1 < install-patch-proposal.diff)
+
+--- a/docs/RELEASING.md
++++ b/docs/RELEASING.md
+@@ -20,9 +20,9 @@
+ 
+ 1. Choose the next version and review the changes merged since the previous tag.
+    Keep unrelated experiments and unverified claims out of the release.
+-2. Update `vr/pcvr_identity.h`, including the numeric resource version, and the
+-   installer defaults in `installer/D2R_PCVR_Setup.iss` and
+-   `installer/build_native_installer.ps1`. Existing identity tests check agreement.
++2. Update `vr/pcvr_identity.h`, including the numeric resource version, the version in
++   `vrmod-manifest.json`, and the installer defaults in `installer/D2R_PCVR_Setup.iss`
++   and `installer/build_native_installer.ps1`. Existing identity tests check agreement.
+ 3. Fill the template in `RELEASE_NOTES.md`, including its versioned heading and
+    links. Update the `PCVR_IN_HEADSET_NOTES` comment at the end with the same
+    release tag, current contributor credits, and 1-14 short feature bullets.
+--- a/installer/D2R_PCVR_Setup.iss
++++ b/installer/D2R_PCVR_Setup.iss
+@@ -8,6 +8,16 @@
+ #ifndef InstallerOutput
+   #define InstallerOutput "Output"
+ #endif
++; The D2R VR Launcher (https://github.com/natpoh/d2r-vr-launcher) can ride inside this Setup: build_native_installer.ps1 -LauncherSetup ... stages
++; its unmodified Setup in the payload (launcher\) and defines LauncherSetupFile, LauncherVersion and LauncherSetupSha256. Without them nothing changes.
++#ifdef LauncherSetupFile
++  #ifndef LauncherVersion
++    #error LauncherVersion must be given with LauncherSetupFile.
++  #endif
++  #ifndef LauncherSetupSha256
++    #error LauncherSetupSha256 must be given with LauncherSetupFile.
++  #endif
++#endif
+ 
+ [Setup]
+ AppId=D2R-PCVR-Native-Windows
+@@ -373,9 +383,80 @@
+   end;
+ end;
+ 
++#ifdef LauncherSetupFile
++// The carried D2R VR Launcher Setup (the launcher's docs/INSTALLER_CONTRACT.md). It is installed silently for this user when the launcher is missing or
++// older than the carried one. It never blocks this install (a failure is only logged), and removing D2R VR Unleashed never removes the launcher.
++function LauncherVersionNewer(A, B: String): Boolean;   // A > B, dotted numbers, up to four parts, a missing part is 0
++var
++  I, J, X, Y: Integer;
++  PA, PB: String;
++begin
++  Result := False;
++  PA := A + '.';
++  PB := B + '.';
++  for I := 1 to 4 do
++  begin
++    J := Pos('.', PA);
++    X := StrToIntDef(Copy(PA, 1, J - 1), 0);
++    Delete(PA, 1, J);
++    J := Pos('.', PB);
++    Y := StrToIntDef(Copy(PB, 1, J - 1), 0);
++    Delete(PB, 1, J);
++    if X > Y then begin Result := True; Exit; end;
++    if X < Y then Exit;
++  end;
++end;
++
++function LauncherNeeded(const SetupFile: String): Boolean;
++var
++  Installed, Dir: String;
++begin
++  Result := True;
++  if RegQueryStringValue(HKCU, 'Software\D2R VR Launcher', 'Version', Installed) and
++     RegQueryStringValue(HKCU, 'Software\D2R VR Launcher', 'InstallDir', Dir) and
++     FileExists(AddBackslash(Dir) + 'D2RVRLauncher.exe') then begin
++    Result := LauncherVersionNewer('{#LauncherVersion}', Installed);
++    if not Result then Log('D2R VR Launcher ' + Installed + ' is installed and the carried {#LauncherVersion} is not newer: it stays.');
++  end;
++  if Result then begin
++    // Only the exact file pinned at build time is run.
++    if not FileExists(SetupFile) then begin
++      Log('The carried D2R VR Launcher Setup is missing: ' + SetupFile);
++      Result := False;
++    end else if CompareText(GetSHA256OfFile(SetupFile), '{#LauncherSetupSha256}') <> 0 then begin
++      Log('The carried D2R VR Launcher Setup is not the pinned file: it is not run.');
++      Result := False;
++    end;
++  end;
++end;
++
++procedure InstallCarriedLauncher;
++var
++  SetupFile: String;
++  ResultCode: Integer;
++begin
++  SetupFile := ExpandConstant('{app}\launcher\{#LauncherSetupFile}');
++  try
++    if LauncherNeeded(SetupFile) then begin
++      WizardForm.StatusLabel.Caption := 'Installing the D2R VR Launcher...';
++      WizardForm.StatusLabel.Update;
++      if ExecAsOriginalUser(SetupFile, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS=', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
++        Log('D2R VR Launcher Setup {#LauncherVersion} exited with code ' + IntToStr(ResultCode) + ' (ignored).')
++      else
++        Log('D2R VR Launcher Setup {#LauncherVersion} could not be started: ' + SysErrorMessage(ResultCode) + ' (ignored).');
++    end;
++  except
++    Log('D2R VR Launcher Setup: ' + GetExceptionMessage + ' (ignored).');
++  end;
++end;
++#endif
++
+ procedure CurStepChanged(CurStep: TSetupStep);
+ begin
+   if CurStep = ssPostInstall then begin
++#ifdef LauncherSetupFile
++    InstallCarriedLauncher;
++#endif
+     BackendBusy := True;
+     try
+       SetupFailed := not RunBackend(ExpandConstant('{app}'), '--install ' + Q(ChoicesFile));
+--- a/installer/README.md
++++ b/installer/README.md
+@@ -79,6 +79,16 @@
+ - `build-frame/installers/D2R-PCVR-Setup-0.3.19.exe`
+ - matching `.exe.sha256` checksum and `.exe.build.json` provenance report
+ 
++Optionally the EXE carries the [D2R VR Launcher](https://github.com/natpoh/d2r-vr-launcher) (its
++`docs/INSTALLER_CONTRACT.md`). Download `D2R_VR_Launcher_Setup_<version>.exe` and its `.sha256` from that
++project's releases once per release, check the hash, and add
++`-LauncherSetup <file> -LauncherSetupSha256 <the 64 digits>` to the command above. The wrapper refuses another
++file name or a hash that differs, stages the file unmodified under `launcher\` in the payload, and records it in
++`.exe.build.json`. At install time Setup runs it silently for the installing user
++(`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS=`) only when `HKCU\Software\D2R VR Launcher` shows no launcher
++or an older one, after re-checking the pinned hash, and ignores its exit code: a launcher problem never blocks the
++mod. Removing D2R VR Unleashed leaves the launcher installed. Without the two parameters nothing changes.
++
+ The EXE is unsigned unless a release maintainer separately signs it. Signing
+ requires an appropriate publisher certificate; do not label an unsigned EXE as
+ signed. Build output and downloaded dependencies stay out of source control.
+--- a/installer/build_native_installer.ps1
++++ b/installer/build_native_installer.ps1
+@@ -3,7 +3,9 @@
+     [string]$Version = '0.3.19',
+     [string]$ISCCPath,
+     [string]$PythonArchive,
+-    [string]$OutputDirectory
++    [string]$OutputDirectory,
++    [string]$LauncherSetup,
++    [string]$LauncherSetupSha256
+ )
+ $ErrorActionPreference = 'Stop'
+ $ProgressPreference = 'SilentlyContinue'
+@@ -33,7 +35,23 @@
+ }
+ $compilerVersion = & $ISCCPath --version
+ if ($LASTEXITCODE -ne 0) { throw 'Could not determine the Inno Setup compiler version' }
+-$staged = & $python (Join-Path $PSScriptRoot 'stage_native_installer.py') --package $package --python-archive $PythonArchive --staging-parent (Join-Path $repoRoot 'build-frame/installer-staging') --version $Version
++$launcherArguments = @()
++if ($LauncherSetup -or $LauncherSetupSha256) {
++    # The D2R VR Launcher's own Setup, carried unmodified from https://github.com/natpoh/d2r-vr-launcher/releases and installed silently
++    # when it is missing or older. Pin the file's SHA-256 here, from the release's .sha256 file; nothing is downloaded at install time.
++    if (!$LauncherSetup -or $LauncherSetupSha256 -notmatch '^[0-9a-fA-F]{64}$') {
++        throw 'Give both -LauncherSetup <D2R_VR_Launcher_Setup_version.exe> and its 64-digit -LauncherSetupSha256.'
++    }
++    $launcher = (Resolve-Path -LiteralPath $LauncherSetup).Path
++    if ((Split-Path -Leaf $launcher) -notmatch '^D2R_VR_Launcher_Setup_\d+(\.\d+){1,3}\.exe$') {
++        throw 'The launcher Setup must keep its published name, D2R_VR_Launcher_Setup_<version>.exe.'
++    }
++    if ((Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant() -ne $LauncherSetupSha256.ToLowerInvariant()) {
++        throw 'Launcher Setup checksum mismatch'
++    }
++    $launcherArguments = @('--launcher-setup', $launcher, '--launcher-sha256', $LauncherSetupSha256.ToLowerInvariant())
++}
++$staged = & $python (Join-Path $PSScriptRoot 'stage_native_installer.py') --package $package --python-archive $PythonArchive --staging-parent (Join-Path $repoRoot 'build-frame/installer-staging') --version $Version @launcherArguments
+ if ($LASTEXITCODE -ne 0) { throw 'Native installer payload validation failed' }
+ $stage = $staged | ConvertFrom-Json
+ $runtimeExe = Join-Path $stage.payload '.runtime/python/python.exe'
+@@ -42,7 +60,12 @@
+     throw 'Bundled private Python publisher signature validation failed'
+ }
+ New-Item -ItemType Directory -Force -Path $output | Out-Null
+-& $ISCCPath /Qp "/DPayloadDir=$($stage.payload)" "/DModVersion=$Version" "/DInstallerOutput=$output" (Join-Path $PSScriptRoot 'D2R_PCVR_Setup.iss')
++$launcherDefines = @()
++if ($stage.carried_launcher) {
++    $launcherDefines = @("/DLauncherSetupFile=$(Split-Path -Leaf $stage.carried_launcher.file)", "/DLauncherVersion=$($stage.carried_launcher.version)",
++                         "/DLauncherSetupSha256=$($stage.carried_launcher.sha256)")
++}
++& $ISCCPath /Qp "/DPayloadDir=$($stage.payload)" "/DModVersion=$Version" "/DInstallerOutput=$output" @launcherDefines (Join-Path $PSScriptRoot 'D2R_PCVR_Setup.iss')
+ if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
+ $installer = Join-Path $output "D2R-PCVR-Setup-$Version.exe"
+ $digest = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+@@ -57,6 +80,7 @@
+     plugin_sha256 = $stage.plugin_sha256
+     compiler = ($compilerVersion | Out-String).Trim()
+     private_python = '3.12.10 (official x64 embeddable package; SHA-256 and publisher checked)'
++    carried_launcher = $stage.carried_launcher
+     signed = $false
+ }
+ $report | ConvertTo-Json | Set-Content -LiteralPath "$installer.build.json" -Encoding UTF8
+--- a/installer/stage_native_installer.py
++++ b/installer/stage_native_installer.py
+@@ -3,15 +3,19 @@
+ import hashlib
+ import json
+ from pathlib import Path, PurePosixPath
++import re
+ import uuid
+ import zipfile
+ 
+ PYTHON_SHA256 = '4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3'
++# The D2R VR Launcher's own Setup, carried unmodified (https://github.com/natpoh/d2r-vr-launcher/releases): this one name only.
++LAUNCHER_SETUP = re.compile(r'D2R_VR_Launcher_Setup_(\d+(?:\.\d+){1,3})\.exe')
+ ROOT_FILES = {
+     'INSTALL.md', 'INSTALL-WINDOWS.md', 'README.md', 'CONTROLS.md', 'RELEASE_NOTES.md',
+     'Launch-VR-SteamVR.cmd', 'Launch-VR-VDXR.cmd', 'Launch-Dev-SteamVR.cmd', 'Install-Windows.cmd',
+     'steamvr/DEVELOPMENT_SCENARIOS.md',
+     'Install-BattleNet-Preview.cmd', 'Uninstall-Windows.cmd', 'THIRD_PARTY.md', 'LICENSE', 'd2r_pcvr.ini',
++    'vrmod-manifest.json',
+     'reshade/D2R_DepthFog.fx', 'third_party/minhook/LICENSE.txt', 'external/reshade/LICENSE.md',
+     'bin/d2rl-pcvr.dll', 'bin/openxr_loader.dll', 'bin/CascLib.dll', 'steamvr/vendor/bitknit.py',
+ }
+@@ -36,9 +40,21 @@
+                 and (source / name).is_file()))
+ 
+ 
+-def stage(package, python_archive, destination, source, expected_version=None):
++def read_launcher_setup(path, sha256):
++    """The launcher's Setup as published (its name, its SHA-256 pinned by the build), or an error before anything is staged."""
++    match = LAUNCHER_SETUP.fullmatch(Path(path).name)
++    if not match or not re.fullmatch(r'[0-9a-f]{64}', sha256 or ''):
++        raise ValueError('The launcher Setup must keep its published name, D2R_VR_Launcher_Setup_<version>.exe, and come with its SHA-256.')
++    data = Path(path).read_bytes()
++    if hashlib.sha256(data).hexdigest() != sha256:
++        raise ValueError('Launcher Setup checksum mismatch.')
++    return Path(path).name, match.group(1), data
++
++
++def stage(package, python_archive, destination, source, expected_version=None, launcher_setup=None, launcher_sha256=None):
+     if hashlib.sha256(python_archive.read_bytes()).hexdigest() != PYTHON_SHA256:
+         raise ValueError('Private Python archive checksum mismatch.')
++    launcher = read_launcher_setup(launcher_setup, launcher_sha256) if launcher_setup is not None else None
+     if destination.exists():
+         raise ValueError('Use a new staging directory; existing files are never recursively removed.')
+     with zipfile.ZipFile(package) as archive:
+@@ -86,6 +102,12 @@
+     # The official runtime binaries, stdlib archive and license remain hashed.
+     (runtime / 'python312._pth').write_text('python312.zip\n.\n../../steamvr\n../..\n', encoding='utf-8')
+     hashes.pop('.runtime/python/python312._pth', None)
++    if launcher is not None:
++        name, version, data = launcher
++        (destination / 'launcher').mkdir()
++        (destination / 'launcher' / name).write_bytes(data)
++        hashes['launcher/' + name] = launcher_sha256
++        manifest['carried_launcher'] = {'file': 'launcher/' + name, 'version': version, 'sha256': launcher_sha256}
+     manifest['distribution'] = 'graphical-windows-installer'
+     manifest['private_python'] = {'version': '3.12.10', 'archive_sha256': PYTHON_SHA256}
+     (destination / 'release-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+@@ -98,12 +120,16 @@
+     parser.add_argument('--python-archive', type=Path, required=True)
+     parser.add_argument('--staging-parent', type=Path, required=True)
+     parser.add_argument('--version', help='Require this installer version to match the packaged release tag')
++    parser.add_argument('--launcher-setup', type=Path, help='Carry the D2R VR Launcher Setup (D2R_VR_Launcher_Setup_<version>.exe) unmodified')
++    parser.add_argument('--launcher-sha256', help='The pinned SHA-256 of that file (required with --launcher-setup)')
+     args = parser.parse_args()
+     destination = args.staging_parent.resolve() / ('payload-' + uuid.uuid4().hex)
+-    manifest = stage(args.package, args.python_archive, destination, Path(__file__).resolve().parent.parent, args.version)
++    manifest = stage(args.package, args.python_archive, destination, Path(__file__).resolve().parent.parent, args.version,
++                     args.launcher_setup, args.launcher_sha256)
+     print(json.dumps({'payload': str(destination), 'source_commit': manifest['source_commit'],
+                       'plugin_source_commit': manifest.get('plugin_source_commit'),
+-                      'plugin_sha256': manifest['sha256']['bin/d2rl-pcvr.dll']}))
++                      'plugin_sha256': manifest['sha256']['bin/d2rl-pcvr.dll'],
++                      'carried_launcher': manifest.get('carried_launcher')}))
+ 
+ 
+ if __name__ == '__main__':
+--- a/installer/stage_native_installer_test.py
++++ b/installer/stage_native_installer_test.py
+@@ -110,6 +110,27 @@
+                 manifest = staging.stage(package, runtime, destination, root, '0.3.17')
+                 self.assertEqual(manifest['release_tag'], 'v0.3.17-windows-preview')
+ 
++    def test_carries_only_the_pinned_launcher_setup_unmodified(self):
++        name, data = 'D2R_VR_Launcher_Setup_0.2.0.exe', b'launcher setup fixture'
++        digest = hashlib.sha256(data).hexdigest()
++        with tempfile.TemporaryDirectory() as directory:
++            root = Path(directory)
++            package, runtime, destination = self.fixture(root)
++            launcher = root / name
++            launcher.write_bytes(data)
++            with patch.object(staging, 'PYTHON_SHA256', hashlib.sha256(runtime.read_bytes()).hexdigest()):
++                for path, pin, message in ((launcher, '0' * 64, 'Launcher Setup checksum'), (launcher, None, 'published name'),
++                                           (root / 'Setup.exe', digest, 'published name')):
++                    (root / 'Setup.exe').write_bytes(data)
++                    with self.subTest(pin=pin, path=path.name), self.assertRaisesRegex(ValueError, message):
++                        staging.stage(package, runtime, destination, root, None, path, pin)
++                    self.assertFalse(destination.exists())
++                manifest = staging.stage(package, runtime, destination, root, None, launcher, digest)
++            self.assertEqual((destination / 'launcher' / name).read_bytes(), data)
++            self.assertEqual(manifest['sha256']['launcher/' + name], digest)
++            self.assertEqual(manifest['carried_launcher'], {'file': 'launcher/' + name, 'version': '0.2.0', 'sha256': digest})
++            self.assertEqual(json.loads((destination / 'release-manifest.json').read_text())['sha256']['launcher/' + name], digest)
++
+ 
+ if __name__ == '__main__':
+     unittest.main()
+--- a/steamvr/install.py
++++ b/steamvr/install.py
+@@ -369,6 +369,9 @@
+         payload[Path('d2rloader/runtime/d3dcompiler_47.dll')] = compiler.read_bytes()
+     if args.openxr_loader:
+         payload[mod_identity.OPENXR_LOADER] = args.openxr_loader.read_bytes()
++    # The launcher's descriptor of this mod (the D2R VR Launcher lists mods\*\vrmod-manifest.json). It is journaled like
++    # every other file, so a restore or removal takes it away with the mod.
++    payload[mod_identity.MOD_DIR / 'vrmod-manifest.json'] = (ROOT / 'vrmod-manifest.json').read_bytes()
+     # Native artwork is read locally, never downloaded/bundled with the mod.
+     # Prepare before mutating the install and journal it with all other files.
+     with tempfile.TemporaryDirectory(prefix='d2r-vr-icons-') as temporary:
+--- a/steamvr/install_test.py
++++ b/steamvr/install_test.py
+@@ -146,6 +146,7 @@
+                 self.assertEqual(json.loads((mod / 'D2R-PCVR.mpq/modinfo.json').read_text())['name'], 'D2R-PCVR')
+                 self.assertEqual(json.loads((mod / 'D2R-PCVR.mpq/modinfo.json').read_text())['savepath'], '../')
+                 self.assertIn('D2R VR Unleashed', json.loads((mod / 'D2R-PCVR.mpq/modinfo.json').read_text())['description'])
++                self.assertEqual(json.loads((mod / 'vrmod-manifest.json').read_text())['d2rloader_mod']['name'], 'D2R-PCVR')
+                 self.assertEqual((mod / 'reshade/ReShade64.dll').read_bytes(), b'fixture reshade')
+                 self.assertTrue((mod / 'reshade/ReShade.ini').is_file())
+                 self.assertTrue((mod / 'reshade/D2R_Frame_ReShade.ini').is_file())
+@@ -214,6 +215,7 @@
+                 self.assertFalse((mod_plugins / 'd2rl-pcvr.dll').exists())
+                 self.assertFalse((mod / 'reshade/ReShade64.dll').exists())
+                 self.assertFalse((mod / 'D2R-PCVR.mpq/modinfo.json').exists())
++                self.assertFalse((mod / 'vrmod-manifest.json').exists())
+                 for name in arcane:
+                     self.assertFalse((mod / name).exists(), name)
+                 self.assertFalse((game / 'd2rloader/runtime/d3dcompiler_47.dll').exists())
+--- a/steamvr/mod_identity_test.py
++++ b/steamvr/mod_identity_test.py
+@@ -133,6 +133,15 @@
+         build = (ROOT / 'installer/build_native_installer.ps1').read_text(encoding='utf-8')
+         self.assertIn(f"[string]$Version = '{version}'", build)
+ 
++    def test_launcher_manifest_agrees_with_the_mod_and_ships(self):
++        # vrmod-manifest.json is what the D2R VR Launcher reads from mods\D2R-PCVR; it must not drift from the release.
++        manifest = json.loads((ROOT / 'vrmod-manifest.json').read_text(encoding='utf-8'))
++        self.assertEqual(manifest['version'], self.header()['D2RPCVR_VERSION'].strip('"'))
++        self.assertEqual((manifest['id'], manifest['d2rloader_mod']['name'], manifest['name']),
++                         (ids.MOD_ID, ids.MOD_NAME, ids.DISPLAY_NAME))
++        for name in ('steamvr/package.py', 'installer/stage_native_installer.py'):
++            self.assertTrue("'vrmod-manifest.json'" in (ROOT / name).read_text(encoding='utf-8'), name)
++
+     def test_identity_is_not_d2r_vr_and_keeps_the_credit(self):
+         values = self.header()
+         self.assertEqual(values['D2RPCVR_MOD_ID'], '"d2r-pcvr"')
+--- a/steamvr/package.py
++++ b/steamvr/package.py
+@@ -39,7 +39,7 @@
+              'Install-Windows.cmd', 'Uninstall-Windows.cmd', 'steamvr/setup_windows.ps1',
+              'steamvr/uninstall_windows.py',
+              'steamvr/setup_windows.py', 'steamvr/steam_config.py', 'steamvr/hdr_check.py',
+-             'THIRD_PARTY.md', 'LICENSE', 'd2r_pcvr.ini',
++             'THIRD_PARTY.md', 'LICENSE', 'd2r_pcvr.ini', 'vrmod-manifest.json',
+              'reshade/D2R_DepthFog.fx', 'third_party/minhook/LICENSE.txt',
+              'external/reshade/LICENSE.md', 'steamvr/install.py', 'steamvr/mod_identity.py',
+              'steamvr/launch_windows.py']
+--- /dev/null
++++ b/vrmod-manifest.json
+@@ -0,0 +1,179 @@
++{
++  "schema": "vrmod-manifest/1",
++  "id": "d2r-pcvr",
++  "name": "D2R VR Unleashed",
++  "version": "0.3.19",
++  "publisher": "bearstonem",
++  "homepage": "https://github.com/bearstonem/d2r-pcvr",
++  "support": "https://github.com/bearstonem/d2r-pcvr/issues",
++  "license": "MIT",
++  "description": "Diablo II reimagined for physical, immersive VR.",
++  "d2rloader_mod": {
++    "name": "D2R-PCVR"
++  },
++  "game": {
++    "id": "d2r",
++    "builds": [
++      "3.3.93787",
++      "3.3.93847"
++    ],
++    "stores": [
++      "steam",
++      "battlenet"
++    ],
++    "processes": [
++      "D2R.exe",
++      "D2RLoader.exe"
++    ],
++    "x-builds-by-store": {
++      "steam": "3.3.93787",
++      "battlenet": "3.3.93847 (experimental: offline testing)"
++    }
++  },
++  "requires": [
++    {
++      "id": "d2rloader",
++      "version": "1.3.1-beta",
++      "provider": "launcher",
++      "note": "File hashes of the 1.3.1-beta files unpacked from the reviewed ZIP, as his steamvr/evidence/2026-10-13-loader-archive-repack.json lists them. x-archive: the 2 archive hashes his install.py accepts.",
++      "files": [
++        {
++          "path": "{game}/D2RLoader.exe",
++          "sha256_any_of": [
++            "93021dad48533bcfca8a95c69a0cc00cdb9008a3ce6ceba1d04c7aca71985a10"
++          ]
++        },
++        {
++          "path": "{game}/D2RCore.dll",
++          "sha256_any_of": [
++            "2a868d013d2e0830bd2d9e04b918b19e46a73cf726c833e70d089b948fdeb5a2"
++          ]
++        },
++        {
++          "path": "{game}/d2rloader.mpq",
++          "sha256_any_of": [
++            "1f02aa4e3179cb8a8417125160aa3ef18003ea81ee1a4f54e0a76fd3f22d933b"
++          ]
++        }
++      ],
++      "x-archive": {
++        "url": "https://d2rloader.net/downloads/D2RLoader-1.3.1-beta.zip",
++        "sha256_any_of": [
++          "f7bf0287398890b09bcc68b576327e727304bd88f7be80160f9676e8bd6871e2",
++          "9286c6b5bff7f1043658411dbea305faa9698b6a455e6441668fc6d02c22aad7"
++        ]
++      }
++    }
++  ],
++  "launch": {
++    "options": [
++      {
++        "id": "default",
++        "label": "Play D2R VR Unleashed",
++        "kind": "exec",
++        "exe": "{game}/D2RLoader.exe",
++        "args": [
++          "-mod",
++          "D2R-PCVR"
++        ],
++        "cwd": "{game}",
++        "via": "auto",
++        "stores": [
++          "steam",
++          "battlenet"
++        ],
++        "runtimes": [
++          "system",
++          "steamvr",
++          "vdxr",
++          "file"
++        ],
++        "env": [
++          {
++            "unset": [
++              "SteamOverlayGameId"
++            ]
++          },
++          {
++            "stores": [
++              "steam"
++            ],
++            "unset": [
++              "SteamAppId",
++              "SteamGameId"
++            ],
++            "set": {
++              "SteamAppId": "2536520",
++              "SteamGameId": "2536520"
++            }
++          },
++          {
++            "stores": [
++              "battlenet"
++            ],
++            "unset": [
++              "SteamAppId",
++              "SteamGameId"
++            ]
++          }
++        ],
++        "x-note": "The same command his steamvr/launch_windows.py ends in: D2RLoader.exe -mod D2R-PCVR, started in the game folder. Runtimes as in his wrapper: system = none of its flags (the active OpenXR runtime), steamvr = --frame-openxr-runtime=<SteamVR>/steamxr_win64.json, vdxr = --frame-vdxr (Virtual Desktop Streamer/OpenXR/virtualdesktop-openxr.json under Program Files), file = --frame-openxr-runtime=<manifest>. The launcher hands the chosen one to the child as XR_RUNTIME_JSON, which is what his launch_environment sets. His wrapper hands a Steam start over to Explorer's desktop (Steam only, because Steam's overlay injects into the process chain of a launch option, and Battle.net is started directly). The launcher starts the game from its own desktop process, never from Steam's launch-option chain, so it does not use that hand-off."
++      }
++    ]
++  },
++  "logs": [
++    "{game}/mods/D2R-PCVR/d2rloader/logs/d2r-vr-frame.log",
++    "{game}/mods/D2R-PCVR/d2rloader/logs/d2r-pcvr-vrcam.log",
++    "{game}/d2rloader/logs/d2r-pcvr-vrcam.log",
++    "{game}/d2rloader/logs/d2rloader.log",
++    "{game}/d2rloader/logs/pcvr-launch.log",
++    "{game}/mods/D2R-PCVR/reshade/ReShade.log"
++  ],
++  "update": {
++    "kind": "github-release",
++    "repo": "bearstonem/d2r-pcvr",
++    "tag": "v*-windows-preview"
++  },
++  "uninstall": {
++    "exe": "{localappdata}/Programs/D2R PCVR/unins000.exe",
++    "needs_admin": false
++  },
++  "x-source": {
++    "repo": "https://github.com/bearstonem/d2r-pcvr",
++    "commit": "a0a4f5fade27c18b3e82e64f02832ba6888a05a6",
++    "release_tag": "v0.3.19-windows-preview",
++    "installer_app_id": "D2R-PCVR-Native-Windows",
++    "read_with": "git show <commit>:<path> only, none of his code was run",
++    "files": [
++      "steamvr/mod_identity.py",
++      "steamvr/launch_windows.py",
++      "steamvr/prepare_dev_scenarios.py",
++      "steamvr/game_install.py",
++      "steamvr/install.py",
++      "steamvr/steam_config.py",
++      "installer/D2R_PCVR_Setup.iss",
++      "vr/pcvr_identity.h",
++      "LICENSE",
++      "steamvr/evidence/2026-10-13-loader-archive-repack.json",
++      "docs/MOD_COEXISTENCE.md",
++      "docs/AGENT_WORKFLOW.md",
++      "installer/README.md",
++      "installer/smoke_native_installer.ps1"
++    ]
++  },
++  "x-unverified": {
++    "icon": "left out because no Unleashed artwork exists. For a picture put a PNG or ICO next to this file and add \"icon\": \"launcher_icon.png\". Without one the launcher shows a neutral placeholder.",
++    "game.builds": "a flat list. Steam 3.3.93787 is the build his releases are verified on, Battle.net 3.3.93847 is experimental (his wrapper wants --experimental-battlenet). The manifest cannot say which build belongs to which store (see x-builds-by-store).",
++    "launch.options[0].via": "not run. His wrapper always goes through Explorer's desktop for Steam, the launcher does not (it starts from its own desktop process). Whether that is enough against Steam's overlay injection is untested.",
++    "launch.options[0]": "his wrapper also passes on whatever else is in Steam's launch command after D2R.exe, and the Steam shortcut has the OpenVR flag set for SteamVR. The launcher passes neither.",
++    "developer mode": "his wrapper's --frame-dev (Launch-Dev-SteamVR.cmd, steamvr/DEVELOPMENT_SCENARIOS.md) stages a second D2RLoader mod of its own, mods\\pcvr-dev, and starts that one with an offline test character. The launcher has no such option. A mods\\pcvr-dev folder, once it exists, is listed by the launcher as a plain D2RLoader mod and started with -mod pcvr-dev alone (his docs say that route works too for a prepared environment), without the environment rules above.",
++    "launch.options[0].runtimes": "steamvr: the launcher finds SteamVR's steamxr_win64.json through Steam's libraries (his Battle.net shortcut gets the folder from setup). vdxr and system are as in his wrapper. Nothing was started with a headset.",
++    "logs": "d2r-pcvr-vrcam.log is D2RLoader's startup log of the plugin. Whether a mod's plugin writes it to mods\\D2R-PCVR\\d2rloader\\logs or to the global d2rloader\\logs is not stated in his files, so both are listed. The same goes for ReShade.log: his docs say 'game root' for the old layout, with RESHADE_BASE_PATH_OVERRIDE it should be mods\\D2R-PCVR\\reshade. pcvr-launch.log is written only by his Explorer hand-off, not when the launcher starts the game. A file that does not exist should just be skipped.",
++    "uninstall": "Inno's default unins000.exe in {app} = {localappdata}\\Programs\\D2R PCVR (his smoke test uses that name). Only the EXE installer has it, not the ZIP / portable setup. /SILENT is left out on purpose: his uninstaller asks (ConfirmUninstall) and removes the mod from every Steam and Battle.net copy it manages. PrivilegesRequired=lowest, so no admin rights.",
++    "publisher": "bearstonem is the plugin's author (D2RPCVR_AUTHOR), his installer script says 'D2R PCVR contributors'. The license is his LICENSE: MIT, with BodyWalkVR's copyright line.",
++    "update": "tag pattern from his tags and installer/README.md. Whether GitHub marks his releases as pre-releases (this decides whether releases/latest finds them) is not in the repository.",
++    "settings_app": "none, docs/MOD_COEXISTENCE.md says the legacy settings editor is not part of the native Windows package. Settings are mods\\D2R-PCVR\\d2rloader\\plugins\\d2r_pcvr.ini.",
++    "requires[0].files": "the three hashes are the ones in his steamvr/evidence/2026-10-13-loader-archive-repack.json (identical_payloads), not recomputed from the ZIP here. His install.py checks only the archive hashes.",
++    "everything": "read at the commit in x-source. No game, installer, headset or code of his was run."
++  }
++}

@@ -21,6 +21,10 @@
 
 namespace vrml {
 
+// The variable that tells ReShade where its ini, log, presets and shaders live. Both mods set it themselves, in their own game process; the launcher never
+// sets it for the user and removes an inherited copy from the game it starts (see BuildLaunchPlan).
+inline constexpr const char* kReShadeBasePathVar = "RESHADE_BASE_PATH_OVERRIDE";
+
 struct RuntimeRoots {
     std::vector<fs::path> steam_libraries;   // the Steam folder and the library folders (SteamLibraries)
     fs::path program_files;                  // C:\Program Files
