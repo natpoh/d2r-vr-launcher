@@ -979,7 +979,7 @@ def part_2_view():
             check("could not find out the newest version" in log_of(view), "the log says in words that the newest version could not be found out")
             check(ticked(view) == [False, False, False], "...nothing is ticked by itself")
             set_box(view, 1, True)
-            check(not user32.IsWindowEnabled(dlg(view, V_INSTALL)) and "could not be found out" in wtext(dlg(view, V_NOTICE)) and "Check again" in wtext(dlg(view, V_NOTICE)),
+            check(not user32.IsWindowEnabled(dlg(view, V_INSTALL)) and "Could not check for the newest" in wtext(dlg(view, V_NOTICE)) and "no internet connection" in wtext(dlg(view, V_NOTICE)) and "Check again" in wtext(dlg(view, V_NOTICE)),
                   f"ticking what could not be checked: refused, and the notice says why ({wtext(dlg(view, V_NOTICE))[:90]!r})")
     finally:
         app.close()
@@ -1307,7 +1307,7 @@ def part_3_main_window():
                     check(wtext(dlg(lst, CARD_INSTALL)) != "Update" and "Update available" not in log, f"newest {newest}: no Update button, no badge (never a downgrade)")
             finally:
                 app.close()
-    print("  -- Unleashed with nothing that says which version: the old rule, an unknown version is offered the newest (without a 'from')")
+    print("  -- Unleashed with nothing that says which version: the install view's rule, an unknown version is offered nothing on its card (no badge, no Update)")
     reset_server()
     set_auth(version="0.168")
     set_gh("0.3.19", U319)
@@ -1320,8 +1320,10 @@ def part_3_main_window():
             wait_for(lambda: api_hits() - base_hits >= 2, 15)
             time.sleep(1.0)
             log = wtext(dlg(main, M_LOG))
-            check("D2R VR Unleashed, version not known (installed)" in log and "D2R VR Unleashed: Update available: 0.3.19" in log and "0.3.19 ->" not in log,
-                  f"the log: version not known, Update available: 0.3.19 ({log[-250:]!r})")
+            lst = dlg(main, M_LIST)
+            check("D2R VR Unleashed, version not known (installed)" in log and "Update available" not in log,
+                  f"the log: version not known, and no badge ({log[-250:]!r})")
+            check(lst and all(wtext(dlg(lst, CARD_INSTALL + i)) != "Update" for i in range(2)), "...and no card has an Update button")
     finally:
         app.close()
     reset_server()

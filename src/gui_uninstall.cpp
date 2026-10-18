@@ -1,5 +1,6 @@
 #include "gui_uninstall.h"
 
+#include <atomic>
 #include <memory>
 
 #include <shellapi.h>
@@ -21,12 +22,15 @@ struct Wait {
     HWND target;
     HANDLE process;
     UINT message;
+    std::shared_ptr<std::atomic<bool>> done;
 };
 
 }  // namespace
 
-bool StartUninstaller(HWND owner, const Model::UninstallOffer& o, HWND notify, UINT message, bool* cancelled) {
+bool StartUninstaller(HWND owner, const Model::UninstallOffer& o, HWND notify, UINT message, bool* cancelled, std::function<bool()>* finished) {
     if (cancelled) *cancelled = false;
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    if (finished) *finished = [done] { return done->load(); };
     std::wstring params;
     for (const std::string& a : o.args) params += (params.empty() ? L"" : L" ") + Wide(a);
     SHELLEXECUTEINFOW sei{};
@@ -44,23 +48,28 @@ bool StartUninstaller(HWND owner, const Model::UninstallOffer& o, HWND notify, U
     sei.nShow = SW_SHOWNORMAL;
     if (!ShellExecuteExW(&sei)) {
         if (cancelled) *cancelled = GetLastError() == ERROR_CANCELLED;
+        done->store(true);
         return false;
     }
-    if (sei.hProcess) {
-        auto* job = new Wait{notify, sei.hProcess, message};
-        HANDLE th = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
-            std::unique_ptr<Wait> w(static_cast<Wait*>(p));
-            WaitForSingleObject(w->process, INFINITE);
-            CloseHandle(w->process);
-            PostMessageW(w->target, w->message, 0, 0);
-            return 0;
-        }, job, 0, nullptr);
-        if (th) {
-            CloseHandle(th);
-        } else {
-            CloseHandle(sei.hProcess);
-            delete job;
-        }
+    if (!sei.hProcess) {
+        done->store(true);              // nothing to wait on: the window cannot tell when it ends
+        return true;
+    }
+    auto* job = new Wait{notify, sei.hProcess, message, done};
+    HANDLE th = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
+        std::unique_ptr<Wait> w(static_cast<Wait*>(p));
+        WaitForSingleObject(w->process, INFINITE);
+        CloseHandle(w->process);
+        w->done->store(true);           // first, so whoever gets the message (or polls) sees it ended
+        PostMessageW(w->target, w->message, 0, 0);
+        return 0;
+    }, job, 0, nullptr);
+    if (th) {
+        CloseHandle(th);
+    } else {
+        CloseHandle(sei.hProcess);
+        done->store(true);
+        delete job;
     }
     return true;
 }

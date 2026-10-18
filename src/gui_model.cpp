@@ -1,6 +1,7 @@
 #include "gui_model.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 #include "cli.h"
@@ -55,6 +56,12 @@ std::string DisplayPath(const fs::path& p) {
     std::string s = U(p);
     std::replace(s.begin(), s.end(), '/', '\\');
     return s;
+}
+
+std::string ForLog(std::string w) {
+    const std::string tag = "{game}/";
+    for (size_t at; (at = w.find(tag)) != std::string::npos;) w.erase(at, tag.size());
+    return w;
 }
 
 // ------------------------------------------------------------------ the command line
@@ -293,17 +300,17 @@ std::string Model::GameLine(Tone* tone) const {
         if (tone) *tone = Tone::Error;
         return "There is no D2R.exe in this folder, so it is not a Diablo II: Resurrected folder.";
     }
-    std::string s = g->install.store == "steam" ? "Steam edition" : g->install.store == "battlenet" ? "Battle.net edition" : "Edition not recognised";
+    std::string s = g->install.store == "steam" ? "Steam edition" : g->install.store == "battlenet" ? "Battle.net edition" : "Unknown edition";
     s += " - " + (g->install.build.empty() ? std::string("build unknown") : "build " + g->install.build);
     s += " - ";
     if (!loader_.present) {
         if (tone) *tone = Tone::Warn;
-        return s + "D2RLoader is missing";
+        return s + "D2RLoader is missing: install it with Install / update mods...";
     }
-    if (!loader_hashed_) return s + "D2RLoader found, checking its files...";
-    if (loader_.reviewed) return s + "D2RLoader " + loader_.version + " (reviewed files)";
+    if (!loader_hashed_) return s + "checking D2RLoader...";
+    if (loader_.reviewed) return s + "D2RLoader " + loader_.version + " (verified)";
     if (tone) *tone = Tone::Warn;
-    return s + "D2RLoader " + (loader_.version.empty() ? std::string("found") : loader_.version) + " (not the reviewed files)";
+    return s + "D2RLoader " + (loader_.version.empty() ? std::string("found") : loader_.version) + " (its files differ from the verified ones)";
 }
 
 bool Model::Refresh() {
@@ -352,7 +359,7 @@ Model::CardOffer Model::OfferFor(const ModEntry& m) const {
         return o;
     }
     const Release* r = LatestOf(m.id);
-    const std::string have = NormalizeVersion(m.found_version);       // "" = installed, version not known (never the built-in profile's)
+    const std::string have = NormalizeVersion(m.found_version);       // "" = installed, version not known (never the built-in profile's): no offer
     if (r && IsUpdateFor(have, *r)) {
         o.kind = CardOffer::Kind::Update;
         o.label = "Update";
@@ -377,17 +384,39 @@ Model::UninstallOffer Model::UninstallFor(const ModEntry& m) const {
     o.kind = UninstallOffer::Kind::Explain;
     o.explanation = m.name + " has no uninstaller on this computer" +
                     (t.uninstall_exe.empty() ? std::string(".") : " (" + DisplayPath(t.uninstall_exe) + " is not there).") +
-                    " That happens when it was put in by hand (from a ZIP) and not by its Setup.\n\nTo remove it: close the game, then delete the folder\n" +
+                    " That happens when it was copied in by hand (from a ZIP) instead of installed by its Setup.\n\nTo remove it, quit the game and delete the folder\n" +
                     DisplayPath(m.dir) +
-                    "\nyourself. The launcher never deletes a mod's folder, because it did not make it. Other mods and the game itself are not in that folder.";
+                    "\nyourself. The launcher never deletes a mod's folder. The game itself and the other mods are not in that folder.";
     return o;
 }
 
 std::string Model::UninstallRefusal() const {
     const GameChoice* g = game();
     if (!g || !g->is_game) return "Pick the folder Diablo II: Resurrected is installed in first.";
-    if (GameRunning()) return "The game is running. Save & Exit in the game first (the launcher does not close it): a mod cannot be removed while the game uses its files.";
+    if (busy()) return BusyReason();
+    if (GameRunning()) return "The game is running. Save & Exit in the game first (the launcher does not close it), then press Uninstall again.";
     return "";
+}
+
+void Model::BeginUninstall(const ModEntry& m, std::function<bool()> finished) {
+    busy_id_ = m.id.empty() ? m.folder : m.id;
+    busy_name_ = m.name;
+    busy_finished_ = std::move(finished);
+}
+
+bool Model::PollBusy(std::string* endedId) {
+    if (!busy()) return false;
+    if (busy_finished_ && !busy_finished_()) return false;
+    if (endedId) *endedId = busy_id_;
+    busy_id_.clear();
+    busy_name_.clear();
+    busy_finished_ = nullptr;
+    return true;
+}
+
+std::string Model::BusyReason() const {
+    if (!busy()) return "";
+    return "The uninstaller of " + busy_name_ + " is still open. Finish or close it first (look for its window on the taskbar).";
 }
 
 bool Model::UpdateCheckWanted() const {
@@ -466,11 +495,15 @@ PlayState Model::CanPlay(bool game_running) const {
     PlayState p;
     const GameChoice* g = game();
     if (!g) {
-        p.reason = "No game folder yet. Use Browse... to pick it.";
+        p.reason = "No game folder yet. Use Browse... to pick the folder Diablo II: Resurrected is installed in.";
         return p;
     }
     if (!g->is_game) {
-        p.reason = "There is no D2R.exe in this folder.";
+        p.reason = "There is no D2R.exe in this folder. Use Browse... to pick the folder Diablo II: Resurrected is installed in.";
+        return p;
+    }
+    if (busy()) {
+        p.reason = BusyReason();
         return p;
     }
     const ModEntry* m = mod();
@@ -480,19 +513,19 @@ PlayState Model::CanPlay(bool game_running) const {
     }
     // the order StartMod refuses in, so the reason here is the reason it would give
     if (game_running) {
-        p.reason = "The game is running";
+        p.reason = "The game is already running. Quit it first, then press Play.";
         return p;
     }
     if (!m->installed) {
-        p.reason = m->name + " is not installed in this game folder.";
+        p.reason = m->name + " is not installed in this game folder." + std::string(m->known ? " Press Install on its card to install it." : "");
         return p;
     }
     if (!m->launchable) {
-        p.reason = m->name + " has no way to be started.";
+        p.reason = m->name + " cannot be started: its manifest names no way to start it.";
         return p;
     }
     if (!loader_.present) {
-        p.reason = "D2RLoader.exe is missing: the mods run only under D2RLoader.";
+        p.reason = "D2RLoader is missing, and the mods run only under it. Install it with Install / update mods...";
         return p;
     }
     p.can = true;
@@ -561,6 +594,17 @@ void Model::Log(const std::string& line) {
 std::string UninstallQuestion(const ModEntry& m, const Model::UninstallOffer& o) {
     return "Uninstall " + m.name + "?\n\nThis runs the mod's own uninstaller:\n" + DisplayPath(o.exe) +
            "\n\nIt may ask its own questions. The game itself and the other mods are not touched.";
+}
+
+std::string RefusalText(const StartOutcome& so) {
+    if (so.code == "E_GAME_RUNNING") return "The game is already running. Quit it first, then press Play.";
+    if (so.code == "E_LOADER_MISSING") return "D2RLoader is missing, and the mods run only under it. Install it with Install / update mods...";
+    std::string m = so.message;
+    if (m.empty()) m = "the game could not be started";
+    m[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(m[0])));
+    if (m.back() != '.' && m.back() != '?' && m.back() != '!') m += ".";
+    if (so.code == "E_RUNTIME") m += " Pick another OpenXR runtime below.";
+    return m;
 }
 
 std::string FormatOutcome(const StartOutcome& so, bool dry_run, int* exit_code) {

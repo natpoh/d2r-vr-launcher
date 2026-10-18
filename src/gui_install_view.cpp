@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <ctime>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -253,6 +254,7 @@ private:
     void MakeFonts();
     void CreateControls();
     void ApplyFonts();
+    void AddTips();
     HWND Static(int id, const wchar_t* text, DWORD style = 0);
     HWND Button(int id, const wchar_t* text, DWORD style = BS_PUSHBUTTON);
 
@@ -309,10 +311,12 @@ private:
     HBRUSH bg_brush_ = nullptr, white_brush_ = nullptr, sel_brush_ = nullptr;
     HWND rows_wnd_ = nullptr, st_notice_ = nullptr, st_step_ = nullptr, progress_ = nullptr, edt_log_ = nullptr, btn_check_ = nullptr, btn_install_ = nullptr, btn_close_ = nullptr;
     HWND check_[kPieceCount] = {};
+    HWND tips_ = nullptr;                       // the tooltips of the buttons and boxes
+    HWND focus_ = nullptr;                      // the control that had the keyboard when the window was left (a question, a Setup's wizard): it gets it back
     HWND action_[kPieceCount] = {}, unins_[kPieceCount] = {};
     std::wstring action_shown_[kPieceCount], unins_shown_[kPieceCount];     // the labels the buttons carry now (a button is not touched when nothing changed: no flicker)
     std::vector<ModEntry> mods_;                // the mods as the disk showed them at the last look (the Uninstall buttons read the uninstaller from here)
-    std::string uninstalling_;                  // a mod's own uninstaller is running: its name ("" = none)
+    // a mod's own uninstaller is running: Model::busy() (shared with the main window, which may have started it); the facts after it ended are about this piece
     Piece uninstalling_piece_ = Piece::Authentic;
     bool await_uninstall_facts_ = false;
 
@@ -378,7 +382,7 @@ InstallViewResult View::Run() {
     const int w = std::min<int>(want.right - want.left, workW), h = std::min<int>(want.bottom - want.top, workH);
     const int x = mi.rcWork.left + (workW - w) / 2, y = mi.rcWork.top + (workH - h) / 2;
 
-    hwnd_ = CreateWindowExW(0, kViewClass, L"Install or update - D2R VR Launcher", style, x, y, w, h, owner_, nullptr, inst_, this);
+    hwnd_ = CreateWindowExW(0, kViewClass, L"Install / update mods - D2R VR Launcher", style, x, y, w, h, owner_, nullptr, inst_, this);
     if (!hwnd_) return result_;
     if (owner_) EnableWindow(owner_, FALSE);
     ShowWindow(hwnd_, opt_.screenshot.empty() ? SW_SHOW : SW_SHOWNOACTIVATE);
@@ -411,6 +415,7 @@ bool View::Init() {
     MakeFonts();
     CreateControls();
     ApplyFonts();
+    AddTips();
 
     const GameChoice* g = model_.game();
     inst_model_.SetGame(g ? g->install.dir : fs::path(), g && g->is_game);
@@ -432,7 +437,8 @@ bool View::Init() {
     StartChecks(true);
     UpdateUi();
     Layout();
-    SetFocus(check_[0] && IsWindowEnabled(check_[0]) ? check_[0] : btn_close_);
+    focus_ = check_[0] && IsWindowEnabled(check_[0]) ? check_[0] : btn_close_;      // given again when the window is activated (WM_ACTIVATE)
+    SetFocus(focus_);
     SetTimer(hwnd_, kTimerPoll, kPollMs, nullptr);
     if (!opt_.screenshot.empty()) {
         shot_requested_ = true;
@@ -511,6 +517,33 @@ void View::ApplyFonts() {
     for (HWND h : unins_) set(h, fonts_.ui);
 }
 
+// What the buttons do, in one sentence each (a disabled control shows no tooltip: Windows sends it no mouse messages).
+void View::AddTips() {
+    tips_ = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, 0, 0, 0, 0, hwnd_, nullptr, inst_, nullptr);
+    if (!tips_) return;
+    SendMessageW(tips_, TTM_SETMAXTIPWIDTH, 0, S(380));
+    SendMessageW(tips_, TTM_SETDELAYTIME, TTDT_INITIAL, 500);
+    auto add = [&](HWND control, const std::wstring& text) {
+        if (!control) return;
+        TTTOOLINFOW ti{};
+        ti.cbSize = sizeof ti;
+        ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        ti.hwnd = GetParent(control);
+        ti.uId = reinterpret_cast<UINT_PTR>(control);
+        ti.lpszText = const_cast<LPWSTR>(text.c_str());          // copied by the tooltip control
+        SendMessageW(tips_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+    };
+    for (int i = 0; i < kPieceCount; ++i) {
+        const std::wstring name = W(PieceName(static_cast<Piece>(i)));
+        add(check_[i], L"Tick to install or update " + name + L" with Install selected. Greyed out when there is nothing to do.");
+        add(action_[i], L"Install, update or repair only " + name + L", right now.");
+        add(unins_[i], L"Remove " + name + L" with its own uninstaller. You are asked first.");
+    }
+    add(btn_check_, L"Look at the game folder again and ask the servers for the newest versions.");
+    add(btn_install_, L"Download, check and install everything that is ticked, D2RLoader first (Enter).");
+    add(btn_close_, L"Close this window (Esc). While an install runs, this button cancels it at the next safe point.");
+}
+
 // ------------------------------------------------------------------ what the controls show
 
 void View::SetStatic(HWND h, const std::string& text) {
@@ -566,7 +599,7 @@ const ModEntry* View::EntryOf(Piece p) const {
 std::string View::NoticeText(Tone* tone) const {
     if (tone) *tone = Tone::Normal;
     if (inst_model_.running()) return inst_model_.RunNotice(tone);
-    if (!uninstalling_.empty()) return "Waiting for the uninstaller of " + uninstalling_ + " to finish (its window may be behind this one: look for it on the taskbar).";
+    if (model_.busy()) return "Waiting for the uninstaller of " + model_.busy_name() + " to finish (its window may be behind this one: look for it on the taskbar).";
     if (!sticky_.empty()) {
         if (tone) *tone = sticky_tone_;
         return sticky_;
@@ -594,7 +627,7 @@ void View::UpdateUi() {
         if (Button_GetCheck(check_[i]) != (r.checked ? BST_CHECKED : BST_UNCHECKED)) Button_SetCheck(check_[i], r.checked ? BST_CHECKED : BST_UNCHECKED);
         if (IsWindowEnabled(check_[i]) != (r.enabled ? TRUE : FALSE)) EnableWindow(check_[i], r.enabled);
         // the row's own buttons; while a mod's own uninstaller runs nothing else is started
-        const bool idle = uninstalling_.empty();
+        const bool idle = !model_.busy();
         SetRowButton(action_[i], &action_shown_[i], r.action, r.action_enabled && idle);
         SetRowButton(unins_[i], &unins_shown_[i], r.uninstall, r.uninstall_enabled && idle);
     }
@@ -603,7 +636,7 @@ void View::UpdateUi() {
     notice_tone_ = tone;
     SetStatic(st_notice_, notice);
     const bool running = inst_model_.running();
-    EnableWindow(btn_install_, !running && uninstalling_.empty() && inst_model_.CanStart().can);
+    EnableWindow(btn_install_, !running && !model_.busy() && inst_model_.CanStart().can);
     EnableWindow(btn_check_, !running && inst_model_.has_game());
     const bool cancelling = running && inst_model_.cancel_requested();
     SetWindowTextW(btn_close_, running ? (cancelling ? L"Cancelling..." : L"Cancel") : L"Close");
@@ -739,7 +772,7 @@ void View::PaintHeader(HDC dc) {
     const int title_h = tm.tmHeight;
     const int ty = (S(kHeaderH) - (title_h + S(2) + fonts_.fine_h)) / 2;
     RECT tr{m, ty, rc.right - m, ty + title_h};
-    DrawTextW(dc, L"Install or update", -1, &tr, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+    DrawTextW(dc, L"Install / update mods", -1, &tr, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
     SelectObject(dc, fonts_.fine);
     SetTextColor(dc, kMuted);
     const GameChoice* g = model_.game();
@@ -833,7 +866,7 @@ void View::OnFacts(FactsMsg* raw) {
         Piece p;
         if (PieceOfModId(e.id, &p)) inst_model_.SetInstalled(p, e.installed, e.found_version, e.found_from);
     }
-    for (const std::string& n : m->loader.notes) AppendLog("D2RLoader: " + n);
+    for (const std::string& n : m->loader.notes) AppendLog("D2RLoader: " + ForLog(n));
     if (await_uninstall_facts_) {
         // what the uninstaller left: the mod is gone, or its own question was answered No and it is still there
         await_uninstall_facts_ = false;
@@ -875,7 +908,7 @@ void View::OnUpdate(UpdateMsg* raw) {
 
 void View::OnRowCheck(int piece) {
     if (piece < 0 || piece >= kPieceCount) return;
-    if (inst_model_.running() || !uninstalling_.empty()) {
+    if (inst_model_.running() || model_.busy()) {
         UpdateUi();                    // the box toggled itself: back to what the model says
         return;
     }
@@ -887,7 +920,7 @@ void View::OnRowCheck(int piece) {
 // The row's own Install / Update / Repair: only this piece is ticked (D2RLoader goes with a mod that needs it, as the cards' button does), then the same path as
 // Install selected - the same refusals, the same question about a download without a published checksum.
 void View::OnRowAction(int piece) {
-    if (piece < 0 || piece >= kPieceCount || inst_model_.running() || !uninstalling_.empty()) return;
+    if (piece < 0 || piece >= kPieceCount || inst_model_.running() || model_.busy()) return;
     inst_model_.SetGameRunning(model_.GameRunning());
     inst_model_.TickOnly({static_cast<Piece>(piece)});
     sticky_.clear();
@@ -900,10 +933,13 @@ void View::OnRowAction(int piece) {
 // (Authentic's unins000.exe, Unleashed's in %LOCALAPPDATA%\Programs\D2R PCVR, without /SILENT so its own question shows); with none on this computer, the words for
 // removing it by hand. The launcher never deletes a mod folder itself. When the uninstaller ends the disk is looked at again and the row changes.
 void View::OnRowUninstall(int piece) {
-    if (piece < 0 || piece >= kPieceCount || inst_model_.running() || !uninstalling_.empty()) return;
+    if (piece < 0 || piece >= kPieceCount || inst_model_.running() || model_.busy()) return;
     const Piece p = static_cast<Piece>(piece);
-    const ModEntry* e = EntryOf(p);
-    if (!IsMod(p) || !e || !e->installed) return;
+    const ModEntry* found = EntryOf(p);
+    if (!IsMod(p) || !found || !found->installed) return;
+    // a copy: the questions below run a message loop, and the facts of a check that arrive in it replace mods_
+    const ModEntry entry = *found;
+    const ModEntry* e = &entry;
     const Model::UninstallOffer o = model_.UninstallFor(*e);
     if (o.kind == Model::UninstallOffer::Kind::None) return;
     const std::string refusal = model_.UninstallRefusal();
@@ -927,14 +963,23 @@ void View::OnRowUninstall(int piece) {
         UpdateUi();
         return;
     }
+    // the answer took a while: the game may have been started meanwhile
+    const std::string late = model_.UninstallRefusal();
+    if (!late.empty() || inst_model_.running()) {
+        Sticky(Tone::Warn, late.empty() ? std::string("An install is running.") : late);
+        UpdateUi();
+        return;
+    }
     bool declined = false;
-    if (!StartUninstaller(hwnd_, o, hwnd_, WM_V_UNINSTALLED, &declined)) {
-        Sticky(declined ? Tone::Warn : Tone::Error, declined ? std::string("The uninstaller was cancelled.") : std::string("Could not start the uninstaller."));
+    std::function<bool()> finished;
+    if (!StartUninstaller(hwnd_, o, hwnd_, WM_V_UNINSTALLED, &declined, &finished)) {
+        Sticky(declined ? Tone::Warn : Tone::Error, declined ? std::string("The uninstaller did not start: the Windows prompt was declined. Nothing was changed.")
+                                                             : "Could not start the uninstaller " + DisplayPath(o.exe) + ".");
         AppendLog(declined ? "The Windows prompt for the uninstaller was declined." : "error: could not start " + DisplayPath(o.exe));
         UpdateUi();
         return;
     }
-    uninstalling_ = e->name;
+    model_.BeginUninstall(*e, finished);
     uninstalling_piece_ = p;
     AppendLog("Running the uninstaller of " + e->name + ": " + DisplayPath(o.exe));
     UpdateUi();
@@ -942,10 +987,13 @@ void View::OnRowUninstall(int piece) {
 
 // The uninstaller has ended: look at the game folder again, and ask the servers again (an answer given while the mod was installed said "nothing newer than yours").
 void View::OnUninstalled() {
-    if (uninstalling_.empty()) return;
-    AppendLog("The uninstaller of " + uninstalling_ + " has ended.");
+    const std::string name = model_.busy_name();
+    std::string id;
+    if (!model_.PollBusy(&id)) return;              // still running, or nothing was (the poll already saw it end)
+    Piece p;
+    if (PieceOfModId(id, &p)) uninstalling_piece_ = p;
+    AppendLog("The uninstaller of " + name + " has ended.");
     sticky_.clear();
-    uninstalling_.clear();
     await_uninstall_facts_ = true;
     StartChecks(true);
     UpdateUi();
@@ -953,6 +1001,11 @@ void View::OnUninstalled() {
 
 void View::OnInstall() {
     if (inst_model_.running()) return;
+    if (model_.busy()) {
+        Sticky(Tone::Warn, model_.BusyReason());
+        UpdateUi();
+        return;
+    }
     inst_model_.SetGameRunning(model_.GameRunning());           // it may have been started since the last look
     const StartState ss = inst_model_.CanStart();
     if (!ss.can) {
@@ -1002,7 +1055,7 @@ void View::StartRun(std::vector<PieceJob> jobs) {
         delete job;
         inst_model_.EndRun();
         AppendLog("error: could not start the install");
-        Sticky(Tone::Error, "The install could not be started (no thread).");
+        Sticky(Tone::Error, "The install could not be started. Nothing was changed; close this window and try again.");
     }
     UpdateUi();
 }
@@ -1018,6 +1071,8 @@ void View::OnPiece(PieceOutcome* raw) {
     std::unique_ptr<PieceOutcome> o(raw);
     inst_model_.SetOutcome(*o);
     AppendLog(std::string(PieceName(o->piece)) + ": " + InstallModel::Meaning(*o));
+    const std::string details = InstallModel::LogDetails(*o);
+    if (!details.empty()) AppendLog("  " + details);
     if (o->status == JobStatus::Installed || o->status == JobStatus::AlreadyThere) AppendLog("  " + o->message);
     for (const std::string& n : o->notes) AppendLog("  note: " + n);
     if (!o->sha256.empty()) AppendLog("  SHA-256 of the installer: " + o->sha256 + (o->sha_verified ? " (matches the published one)" : " (no published checksum to compare with)"));
@@ -1048,6 +1103,7 @@ void View::OnCancelOrClose() {
 }
 
 void View::Poll() {
+    OnUninstalled();                                // one started from the main window's card ends while the view is open, or a message that was lost
     const bool running = model_.GameRunning();
     inst_model_.SetGameRunning(running);
     if (!inst_model_.running()) UpdateUi();
@@ -1134,6 +1190,17 @@ LRESULT View::OnView(UINT m, WPARAM w, LPARAM l) {
             mmi->ptMinTrackSize.y = r.bottom - r.top;
             return 0;
         }
+
+        case WM_ACTIVATE:
+            // as a dialog does: the keyboard comes back to the control that had it (after a question, a Setup's wizard, another program)
+            if (LOWORD(w) == WA_INACTIVE) {
+                HWND f = GetFocus();
+                if (f && (IsChild(hwnd_, f))) focus_ = f;
+            } else if (!HIWORD(w) && focus_ && IsWindow(focus_) && IsChild(hwnd_, focus_) && IsWindowVisible(focus_) && IsWindowEnabled(focus_)) {
+                SetFocus(focus_);
+                return 0;
+            }
+            break;
 
         case WM_DPICHANGED: {
             if (!opt_.dpi) dpi_ = HIWORD(w);

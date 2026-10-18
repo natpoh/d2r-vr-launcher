@@ -150,7 +150,7 @@ TEST(why_play_is_not_possible) {
     CHECK(ok.CanPlay(false).reason.empty());
     const PlayState running = ok.CanPlay(true);
     CHECK(!running.can);
-    CHECK_EQ(running.reason, std::string("The game is running"));
+    CHECK_EQ(running.reason, std::string("The game is already running. Quit it first, then press Play."));
     RemoveQuiet(r.sb.game / "D2RLoader.exe");
     Model noloader = r.Make();
     CHECK(!noloader.CanPlay(false).can);
@@ -284,21 +284,21 @@ TEST(the_game_line_tells_edition_build_and_loader) {
     Model m = r.Make();
     Tone tone = Tone::Normal;
     std::string line = m.GameLine(&tone);
-    CHECK_EQ(line, std::string("Steam edition - build 3.3.93787 - D2RLoader found, checking its files..."));
+    CHECK_EQ(line, std::string("Steam edition - build 3.3.93787 - checking D2RLoader..."));
     CHECK(tone == Tone::Normal);
     LoaderStatus st = CheckLoader(r.sb.game, true);        // the sandbox's D2RLoader.exe is a stand-in: not the reviewed files
     m.SetLoaderStatus(st);
     line = m.GameLine(&tone);
-    CHECK(line.find("(not the reviewed files)") != std::string::npos);
+    CHECK(line.find("(its files differ from the verified ones)") != std::string::npos);
     CHECK(tone == Tone::Warn);
     st.reviewed = true;
     st.version = "1.3.1-beta";
     m.SetLoaderStatus(st);
-    CHECK_EQ(m.GameLine(&tone), std::string("Steam edition - build 3.3.93787 - D2RLoader 1.3.1-beta (reviewed files)"));
+    CHECK_EQ(m.GameLine(&tone), std::string("Steam edition - build 3.3.93787 - D2RLoader 1.3.1-beta (verified)"));
     CHECK(tone == Tone::Normal);
     RemoveQuiet(r.sb.game / "D2RLoader.exe");
     Model gone = r.Make();
-    CHECK(gone.GameLine(&tone).find("D2RLoader is missing") != std::string::npos);
+    CHECK(gone.GameLine(&tone).find("D2RLoader is missing") != std::string::npos && gone.GameLine(&tone).find("Install / update mods") != std::string::npos);
     CHECK(tone == Tone::Warn);
 }
 
@@ -459,14 +459,23 @@ TEST(a_card_offers_install_or_update_and_a_badge_when_the_servers_said_so) {
     CHECK(with.OfferFor(a).kind == Model::CardOffer::Kind::Update);
     // and a mod nobody has answered about has nothing to offer
     CHECK(with.LatestOf("d2r-pcvr") == nullptr);
-    // an installed mod whose version is not known (the built-in profile: no manifest of its own) counts as older than anything newer
+    // an installed mod whose version is not known (the built-in profile: no manifest of its own): nothing is proven, so the card offers nothing - the install
+    // view's rule (its row says the version could not be read and has an Update button that is not ticked)
     tt::Write(r.sb.game / "mods" / "D2R-PCVR" / "D2R-PCVR.mpq" / "modinfo.json", "{}");
     Model builtin = r.Make();
-    ModEntry b = builtin.mods()[1];
-    CHECK(b.installed && b.source != "manifest");
+    REQUIRE(builtin.SelectModById("d2r-pcvr"));
+    ModEntry b = *builtin.mod();
+    CHECK(b.installed && b.source != "manifest" && b.found_version.empty());
     builtin.SetLatest(Info("d2r-pcvr", Newest("d2r-pcvr", "0.3.19")));
-    CHECK(builtin.OfferFor(b).kind == Model::CardOffer::Kind::Update);
-    CHECK_EQ(builtin.OfferFor(b).badge, std::string("Update available: 0.3.19"));
+    CHECK(builtin.OfferFor(b).kind == Model::CardOffer::Kind::None);
+    CHECK(builtin.OfferFor(b).badge.empty() && builtin.OfferFor(b).label.empty());
+    // and a mod that is newer than the newest release the site names is offered nothing either (never a downgrade)
+    ModEntry newer = b;
+    newer.found_version = "0.3.20";
+    CHECK(builtin.OfferFor(newer).kind == Model::CardOffer::Kind::None);
+    newer.found_version = "0.3.18";
+    CHECK(builtin.OfferFor(newer).kind == Model::CardOffer::Kind::Update);
+    CHECK_EQ(builtin.OfferFor(newer).badge, std::string("Update available: 0.3.18 -> 0.3.19"));
     // another D2RLoader mod has neither
     r.Install("SomeOtherMod");
     Model other = r.Make();
@@ -573,6 +582,81 @@ TEST(uninstall_is_refused_while_the_game_runs_and_without_a_game_folder) {
     CHECK(nm.UninstallRefusal().find("Pick the folder") != std::string::npos);
 }
 
+TEST(a_note_for_the_log_drops_the_game_placeholder) {
+    CHECK_EQ(ForLog("{game}/D2RCore.dll is missing"), std::string("D2RCore.dll is missing"));
+    CHECK_EQ(ForLog("{game}/a and {game}/b"), std::string("a and b"));
+    CHECK_EQ(ForLog("nothing to drop"), std::string("nothing to drop"));
+}
+
+TEST(a_refused_play_says_what_to_do_in_plain_words) {
+    StartOutcome so;
+    so.code = "E_GAME_RUNNING";
+    so.message = "Close D2R.exe first: the game is running.";
+    CHECK_EQ(RefusalText(so), std::string("The game is already running. Quit it first, then press Play."));
+    so.code = "E_LOADER_MISSING";
+    CHECK(RefusalText(so).find("Install / update mods") != std::string::npos);
+    so.code = "E_RUNTIME";
+    so.message = "SteamVR was not found - the OpenXR runtime manifest is missing";
+    CHECK_EQ(RefusalText(so), std::string("SteamVR was not found - the OpenXR runtime manifest is missing. Pick another OpenXR runtime below."));
+    so.code = "E_RUNTIME";
+    so.message = "the OpenXR runtime manifest was not found: C:/x.json";
+    CHECK(RefusalText(so).rfind("The OpenXR runtime manifest", 0) == 0);              // a sentence: capital first letter
+    CHECK(RefusalText(so).find("E_") == std::string::npos);                            // no error code in what the player reads
+    so.code = "E_IO";
+    so.message = "Could not start the game: access denied.";
+    CHECK_EQ(RefusalText(so), std::string("Could not start the game: access denied."));
+    so.message = "";
+    CHECK(!RefusalText(so).empty());
+    // the refusal that comes before StartMod uses the same words for the same cases
+    Rig r;
+    r.Install("D2R-PCVR");
+    RemoveQuiet(r.sb.game / "D2RLoader.exe");
+    Model m = r.Make();
+    REQUIRE(m.SelectModById("d2r-pcvr"));
+    CHECK(m.CanPlay(false).reason.find("Install / update mods") != std::string::npos);      // no D2RLoader.exe
+    REQUIRE(m.SelectModById("d2r-vr"));
+    CHECK(m.CanPlay(false).reason.find("Press Install on its card") != std::string::npos);   // a known mod that is not installed
+}
+
+TEST(one_thing_at_a_time_play_and_uninstall_wait_for_a_running_uninstaller) {
+    Rig r;
+    r.Install("D2R-VR");
+    r.Install("D2R-PCVR");
+    tt::Write(r.sb.game / "D2RLoader.exe", "loader");
+    Model m = r.Make();
+    REQUIRE(m.SelectModById("d2r-pcvr"));
+    CHECK(m.CanPlay(false).can);
+    CHECK(!m.busy() && m.BusyReason().empty());
+    CHECK(!m.PollBusy());                                    // nothing runs: nothing ended
+    REQUIRE(m.SelectModById("d2r-vr"));
+    bool ended = false;
+    m.BeginUninstall(*m.mod(), [&] { return ended; });
+    REQUIRE(m.SelectModById("d2r-pcvr"));
+    CHECK(m.busy());
+    CHECK_EQ(m.busy_name(), std::string("D2R VR Authentic"));
+    // while it runs: no Play (even of the other mod), no second Uninstall, and both say why in the same words
+    const PlayState p = m.CanPlay(false);
+    CHECK(!p.can);
+    CHECK(p.reason.find("uninstaller of D2R VR Authentic") != std::string::npos && p.reason.find("Finish or close it") != std::string::npos);
+    CHECK_EQ(m.UninstallRefusal(), m.BusyReason());
+    std::string id = "untouched";
+    CHECK(!m.PollBusy(&id));                                 // still running
+    CHECK_EQ(id, std::string("untouched"));
+    // it ends: the edge is seen once, with the mod's id, and everything is allowed again
+    ended = true;
+    CHECK(m.PollBusy(&id));
+    CHECK_EQ(id, std::string("d2r-vr"));
+    CHECK(!m.busy() && !m.PollBusy());
+    CHECK(m.CanPlay(false).can);
+    CHECK(m.UninstallRefusal().empty());
+    // without a way to tell when it ends (no process handle) it counts as ended at the next look
+    m.BeginUninstall(*m.mod(), nullptr);
+    CHECK(m.busy() && m.PollBusy() && !m.busy());
+    // a running game still comes first for Uninstall once nothing else runs
+    r.sb.probe.Start("D2R.exe");
+    CHECK(m.UninstallRefusal().find("The game is running") != std::string::npos);
+}
+
 // ================================================================== the version found in the folder drives the cards (not the built-in profile's)
 
 TEST(a_card_compares_the_version_found_in_the_mods_folder_and_never_offers_a_downgrade) {
@@ -597,13 +681,13 @@ TEST(a_card_compares_the_version_found_in_the_mods_folder_and_never_offers_a_dow
     m.SetLatest(Info("d2r-vr", Newest("d2r-vr", "0.171.0")));
     CHECK(m.OfferFor(a).kind == Model::CardOffer::Kind::Update);
     CHECK_EQ(m.OfferFor(a).badge, std::string("Update available: 0.170.0 -> 0.171.0"));
-    // a version that could not be found anywhere: the old rule (an unknown version is offered the newest, without a "from")
+    // a version that could not be found anywhere: nothing is proven, so the card offers nothing (the install view's rule; 0.3.1 still showed a badge here)
     tt::Write(r.sb.game / "mods" / "D2R-VR" / "vrmod-manifest.json", "{ not json");
     Model unknown = r.Make();
     ModEntry b = *std::find_if(unknown.mods().begin(), unknown.mods().end(), [](const ModEntry& e) { return e.id == "d2r-vr"; });
     CHECK(b.installed && b.found_version.empty());
     unknown.SetLatest(Info("d2r-vr", Newest("d2r-vr", "0.169.0")));
-    CHECK_EQ(unknown.OfferFor(b).badge, std::string("Update available: 0.169.0"));
+    CHECK(unknown.OfferFor(b).kind == Model::CardOffer::Kind::None && unknown.OfferFor(b).badge.empty());
 }
 
 #ifdef VRML_FAKE_PLUGIN_DIR

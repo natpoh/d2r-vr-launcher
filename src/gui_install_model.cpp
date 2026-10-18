@@ -20,18 +20,29 @@ bool Has(const std::string& s, const std::string& part) { return s.find(part) !=
 
 // A server problem in a few words for the row (the log has the whole message).
 std::string ShortError(const std::string& e) {
-    if (Has(e, "cannot reach") || Has(e, "connection")) return "no connection to the server";
     if (Has(e, "timed out") || Has(e, "timeout")) return "the server did not answer in time";
+    if (IsNetworkFailure(e)) return "no connection to the server";
+    if (Has(e, "answered HTTP 403") || Has(e, "answered HTTP 429")) return "the server is busy, try again later";
+    if (Has(e, "answered HTTP")) return "the server answered with an error";
     if (Has(e, "untrust") || Has(e, "refused")) return "the answer was refused";
     if (Has(e, "not readable") || Has(e, "not what was expected") || Has(e, "no version") || Has(e, "not a list")) return "an answer that makes no sense";
     if (Has(e, "no release")) return "no release with an installer";
-    std::string s = e.substr(0, e.find(':') == std::string::npos || e.find(':') > 60 ? 60 : e.find(':'));
+    // "could not ask GitHub for the newest D2R VR Unleashed: <why>": the why is the news
+    const size_t colon = e.find(": ");
+    if (StartsWith(e, "could not ask ") && colon != std::string::npos) return ShortError(e.substr(colon + 2));
+    std::string s = e.substr(0, colon == std::string::npos || colon > 60 ? 60 : colon);
     return s.size() < e.size() ? s + "..." : s;
 }
 
 std::string Percent(uint64_t done, uint64_t total) { return std::to_string(total ? std::min<uint64_t>(100, done * 100 / total) : 0) + " %"; }
 
 }  // namespace
+
+bool IsNetworkFailure(const std::string& e) {
+    for (const char* part : {"cannot reach", "cannot connect to", "no answer from", "the download broke off", "the download is incomplete", "timed out", "connection"})
+        if (Has(e, part)) return true;
+    return false;
+}
 
 std::string FormatBytes(uint64_t b) {
     char buf[32];
@@ -41,10 +52,7 @@ std::string FormatBytes(uint64_t b) {
     return buf;
 }
 
-bool IsUpdateFor(const std::string& installedVersion, const Release& latest) {
-    if (latest.up_to_date || latest.version.empty()) return false;
-    return installedVersion.empty() || IsNewer(latest.version, installedVersion);
-}
+bool IsUpdateFor(const std::string& installedVersion, const Release& latest) { return StandingOf(installedVersion, latest) == Standing::Older; }
 
 Standing StandingOf(const std::string& installedVersion, const Release& latest) {
     const std::string have = NormalizeVersion(installedVersion);
@@ -244,10 +252,10 @@ std::vector<InstallRow> InstallModel::Rows() const {
                 r.action = "Install";
                 r.action_enabled = can_act;
             } else if (!loader_hashed_) {
-                r.installed = "found, checking its files...";
+                r.installed = "checking its files...";
                 r.action = "Checking...";
             } else if (loader_.reviewed) {
-                r.installed = "reviewed " + (loader_.version.empty() ? pin_version_ : loader_.version) + " files";
+                r.installed = (loader_.version.empty() ? pin_version_ : loader_.version) + " (verified)";
                 r.installed_tone = Tone::Ok;
                 r.action = "Up to date";
             } else {
@@ -257,18 +265,18 @@ std::vector<InstallRow> InstallModel::Rows() const {
                 r.action_enabled = can_act;
             }
             r.latest = pin_version_ + " (pinned)";
-            r.source = "d2rloader.net, hash pinned in the launcher";
+            r.source = "d2rloader.net - checked against the checksum built into the launcher";
             r.how = "Unpacked by the launcher itself, no wizard; files it replaces are backed up first.";
             const bool forced = d.checked && NeedsLoader() && AnyModTicked();
             if (forced && LoaderMissing()) {
                 r.note = "Ticked because " + ModsTicked() + (AnyModTicked() && ModsTicked().find(" and ") != std::string::npos ? " run" : " runs") + " only under D2RLoader, which is missing.";
             } else if (forced) {
-                r.note = "Ticked because the files here are not the reviewed ones; they are replaced (your own files are backed up first).";
+                r.note = "Ticked because the files here differ from the verified " + pin_version_ + " ones; they are replaced (the old ones are backed up first).";
             } else if (!d.checked && LoaderMissing() && AnyModTicked()) {
                 r.note = "Without D2RLoader the mods cannot be started.";
                 r.note_tone = Tone::Warn;
             } else if (!d.checked && game_ok_ && loader_.present && loader_hashed_ && !loader_.reviewed) {
-                r.note = "The files here are not the reviewed ones. Repair puts the reviewed ones in (your own files are backed up first).";
+                r.note = "The files here differ from the verified " + pin_version_ + " ones. Repair puts the verified ones in (the old ones are backed up first).";
             }
         } else {
             const Release& L = d.upd.latest;
@@ -278,7 +286,7 @@ std::vector<InstallRow> InstallModel::Rows() const {
             } else if (!d.installed) {
                 r.installed = "not installed";
             } else if (d.installed_version.empty()) {
-                r.installed = "installed (version unknown)";
+                r.installed = "version unknown";
             } else {
                 r.installed = d.installed_version;
                 if (d.installed_from == "plugin") r.installed += " (from its plugin)";
@@ -313,9 +321,8 @@ std::vector<InstallRow> InstallModel::Rows() const {
                 if (known) r.source += L.sha256.empty() ? " - no checksum published yet" : " - checksum published";
                 r.how = "Its own Setup opens in a window; Windows asks for administrator rights first.";
             } else {
-                r.source = "GitHub release of bearstonem/d2r-pcvr";
-                if (known && L.sha256.empty()) r.source += " - no checksum published";
-                else r.source += ", SHA-256 from GitHub";
+                r.source = "GitHub (bearstonem/d2r-pcvr)";
+                if (known) r.source += L.sha256.empty() ? " - no checksum published" : " - checksum published";
                 r.how = "Its own Setup opens in a window and installs for you only: no administrator prompt.";
             }
             // the row's own buttons
@@ -338,10 +345,10 @@ std::vector<InstallRow> InstallModel::Rows() const {
             }
             if (d.checked) {
                 if (d.check == CheckState::Failed) {
-                    r.note = "The newest version could not be found out: press Check again first.";
+                    r.note = "Could not check for the newest version. Press Check again.";
                     r.note_tone = Tone::Warn;
                 } else if (d.check == CheckState::Checking) {
-                    r.note = "Waiting for the answer about the newest version...";
+                    r.note = "Checking for the newest version...";
                 } else if (known && L.sha256.empty()) {
                     r.note = "No published checksum: you will be asked before anything is downloaded.";
                     r.note_tone = Tone::Warn;
@@ -372,13 +379,13 @@ StartState InstallModel::CanStart() const {
         return s;
     }
     if (game_running_) {
-        s.reason = "The game is running. Close it first: its files cannot be replaced while it runs.";
+        s.reason = "The game is running. Quit the game first, then install: its files cannot be replaced while it runs.";
         return s;
     }
     if (!row(Piece::Loader).checked && !AnyModTicked()) {
         // (a ticked box is always a real install, update or fix: what is up to date cannot be ticked)
         if (!AllChecksFinished()) {
-            s.reason = "Still finding out what is installed and what is newest...";
+            s.reason = "Checking what is installed and what is new...";
         } else if (dropped_ || NothingToDo()) {
             s.reason = dropped_ ? "Nothing to install: everything you ticked is up to date." : "Nothing to install: everything is up to date.";
             s.calm = true;
@@ -388,18 +395,20 @@ StartState InstallModel::CanStart() const {
         return s;
     }
     if (row(Piece::Loader).checked && loader_.present && !loader_hashed_) {
-        s.reason = "Still looking at D2RLoader's files...";
+        s.reason = "Checking D2RLoader's files...";
         return s;
     }
     for (Piece m : {Piece::Authentic, Piece::Unleashed}) {
         const RowData& d = row(m);
         if (!d.checked) continue;
         if (d.check == CheckState::Checking || d.check == CheckState::NotAsked) {
-            s.reason = std::string("Still finding out the newest ") + PieceName(m) + "...";
+            s.reason = std::string("Checking for the newest ") + PieceName(m) + "...";
             return s;
         }
         if (d.check == CheckState::Failed) {
-            s.reason = std::string("The newest ") + PieceName(m) + " could not be found out (" + d.upd.error + "). Press Check again, or untick it.";
+            s.reason = IsNetworkFailure(d.upd.error)
+                           ? std::string("Could not check for the newest ") + PieceName(m) + ": no internet connection, or the server did not answer. Check your connection, then press Check again (or untick it)."
+                           : std::string("Could not check for the newest ") + PieceName(m) + " (" + ShortError(d.upd.error) + "). Press Check again, or untick it.";
             return s;
         }
     }
@@ -560,8 +569,8 @@ std::string InstallModel::StepText() const {
         return head + "downloading " + FormatBytes(run_done_) + (run_total_ ? " of " + FormatBytes(run_total_) + " (" + Percent(run_done_, run_total_) + ")" : std::string());
     }
     if (run_stage_ == "unpack") return head + "unpacking the archive...";
-    if (run_stage_ == "verify") return head + "checking the files against the reviewed hashes...";
-    if (run_stage_ == "install") return head + "putting the files into the game folder...";
+    if (run_stage_ == "verify") return head + "checking the files...";
+    if (run_stage_ == "install") return head + "copying the files into the game folder...";
     if (run_stage_ == "setup") return head + "its Setup is running - finish or close its wizard";
     return head + "working...";
 }
@@ -604,7 +613,7 @@ std::string InstallModel::Headline(Tone* tone) const {
     if (cancelled) parts.push_back(std::to_string(cancelled) + " cancelled");
     if (notrun) parts.push_back(std::to_string(notrun) + " not run");
     if (tone) *tone = failed ? Tone::Error : (cancelled || notrun) ? Tone::Warn : Tone::Ok;
-    return (failed || cancelled || notrun ? "Finished: " : "Done: ") + Join(parts, ", ") + (failed || cancelled || notrun ? " - see the marks and the log." : ".");
+    return (failed || cancelled || notrun ? "Finished: " : "Done: ") + Join(parts, ", ") + (failed || cancelled || notrun ? " - see the rows and the log for why." : ".");
 }
 
 // ------------------------------------------------------------------ words
@@ -632,7 +641,6 @@ std::string InstallModel::ShortMark(const PieceOutcome& o, Tone* tone) {
 }
 
 std::string InstallModel::Meaning(const PieceOutcome& o) {
-    const std::string code = o.code.empty() ? "" : " (" + o.code + ")";
     switch (o.status) {
         case JobStatus::Installed: {
             std::string s = "installed" + (o.version.empty() || o.piece == Piece::Loader ? std::string() : " " + o.version);
@@ -640,29 +648,40 @@ std::string InstallModel::Meaning(const PieceOutcome& o) {
             return s;
         }
         case JobStatus::AlreadyThere:
-            return o.piece == Piece::Loader ? "already installed: the reviewed files are there, nothing was downloaded" : "already the newest version, nothing was downloaded or run";
+            return o.piece == Piece::Loader ? "already installed: the verified files are there, nothing was downloaded" : "already the newest version, nothing was downloaded or run";
         case JobStatus::NotRun:
             return o.message.empty() ? "not run" : o.message;
         case JobStatus::Cancelled:
-            return (o.setup_exit >= 0 ? "the Setup was cancelled in its wizard" : "cancelled") + std::string(o.setup_exit >= 0 || o.piece == Piece::Loader ? "" : ": the download was stopped and deleted") + code;
+            return (o.setup_exit >= 0 ? "the Setup was cancelled in its wizard" : "cancelled") + std::string(o.setup_exit >= 0 || o.piece == Piece::Loader ? "" : ": the download was stopped and deleted");
         case JobStatus::Failed:
             break;
     }
     const std::string& c = o.code;
-    if (c == "E_UAC_DECLINED") return "you declined the administrator prompt, so nothing was installed" + code;
-    if (c == "E_UNVERIFIED") return "no checksum is published and the download was not accepted without one, so nothing was downloaded" + code;
-    if (c == "E_HASH") return "a checksum did not match, so nothing was installed (the download was deleted and no Setup was run)" + code + ": " + o.message;
-    if (c == "E_SETUP") return "the Setup failed" + (o.setup_exit >= 0 ? ": " + DescribeSetupExit(o.setup_exit) + " (exit code " + std::to_string(o.setup_exit) + ")" : std::string()) + code;
-    if (c == "E_MOD_NOT_INSTALLED") return "the Setup finished, but the mod is not in this game folder - did you choose another folder in its wizard?" + code;
-    if (c == "E_GAME_RUNNING") return "the game is running: close it first" + code;
-    if (c == "E_GAME") return "this is not a game folder" + code;
-    if (c == "E_ARCHIVE") return "the archive is damaged or holds names it must not hold, so nothing was installed" + code + ": " + o.message;
-    if (c == "E_UNTRUSTED") return "a server gave an address the launcher does not trust, so nothing was downloaded" + code + ": " + o.message;
-    if (c == "E_ROLLBACK") return "the install failed half way and putting the old files back failed too" + code + ": " + o.message;
+    if (c == "E_UAC_DECLINED") return "you declined the administrator prompt, so nothing was installed";
+    if (c == "E_UNVERIFIED") return "no checksum is published and the download was not accepted without one, so nothing was downloaded";
+    if (c == "E_HASH") return "the download did not match its published checksum, so it was deleted and nothing was installed. Try again later; if it happens again, tell the mod's author";
+    if (c == "E_SETUP") return "the Setup failed" + (o.setup_exit >= 0 ? ": " + DescribeSetupExit(o.setup_exit) + " (exit code " + std::to_string(o.setup_exit) + ")" : std::string());
+    if (c == "E_MOD_NOT_INSTALLED") return "the Setup finished, but the mod is not in this game folder - did you choose another folder in its wizard?";
+    if (c == "E_GAME_RUNNING") return "the game is running: quit it first, then install again";
+    if (c == "E_GAME") return "this is not a Diablo II: Resurrected folder";
+    if (c == "E_ARCHIVE") return "the download is damaged or holds files it must not hold, so nothing was installed";
+    if (c == "E_UNTRUSTED") return "a server sent an address the launcher does not trust, so nothing was downloaded";
+    if (c == "E_ROLLBACK") return "the install failed half way and putting the old files back failed too: " + o.message;
     if (c == "E_IO" && Has(o.message, "administrator rights are needed"))
-        return "administrator rights are needed for this game folder: close the launcher, start it again with Run as administrator, and install again" + code;
-    if (c == "E_IO") return "a network or disk problem" + code + ": " + o.message;
-    return (o.message.empty() ? "failed" : o.message) + code;
+        return "administrator rights are needed for this game folder: close the launcher, start it again with Run as administrator, and install again";
+    if (IsNetworkFailure(o.message)) return "the download failed: no internet connection, or the server did not answer. Nothing was installed. Check your connection and try again";
+    if (c == "E_IO") return "a disk or network problem, nothing was installed: " + o.message;
+    return o.message.empty() ? "failed" : o.message;
+}
+
+std::string InstallModel::LogDetails(const PieceOutcome& o) {
+    if (o.code.empty() && (o.status == JobStatus::Installed || o.status == JobStatus::AlreadyThere)) return "";
+    std::string s = o.code.empty() ? "" : "[" + o.code + "]";
+    // the message is already in the words for these; for the others it is the detail a support request needs
+    const bool said = o.status == JobStatus::NotRun || o.code == "E_ROLLBACK" || (o.code == "E_IO" && !IsNetworkFailure(o.message) && !Has(o.message, "administrator rights are needed")) ||
+                      (o.code.empty() && o.status == JobStatus::Failed);
+    if (!said && !o.message.empty()) s += (s.empty() ? "" : " ") + o.message;
+    return s;
 }
 
 }  // namespace gui

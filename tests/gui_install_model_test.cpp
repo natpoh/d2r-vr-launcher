@@ -10,6 +10,12 @@ using namespace vrml::gui;
 
 namespace {
 
+// a failed expectation of a table, with the row of the table in the message
+void Expect(bool ok, const std::string& what) {
+    if (!ok) t::Fail(__FILE__, __LINE__, what);
+}
+
+
 bool Has(const std::string& s, const std::string& part) { return s.find(part) != std::string::npos; }
 
 UpdateInfo Answer(Piece p, const std::string& version, const std::string& sha = "", bool upToDate = false) {
@@ -78,7 +84,7 @@ TEST(a_fresh_game_lists_the_three_pieces_and_says_what_is_missing) {
     CHECK_EQ(Row(rows, Piece::Loader).installed, std::string("missing"));
     CHECK(Row(rows, Piece::Loader).installed_tone == Tone::Warn);
     CHECK_EQ(Row(rows, Piece::Loader).latest, std::string("1.3.1-beta (pinned)"));
-    CHECK_EQ(Row(rows, Piece::Loader).source, std::string("d2rloader.net, hash pinned in the launcher"));
+    CHECK_EQ(Row(rows, Piece::Loader).source, std::string("d2rloader.net - checked against the checksum built into the launcher"));
     CHECK_EQ(Row(rows, Piece::Authentic).installed, std::string("not installed"));
     // while the servers are being asked: "checking...", nothing ticked, nothing to start
     CHECK_EQ(Row(rows, Piece::Authentic).latest, std::string("checking..."));
@@ -86,13 +92,13 @@ TEST(a_fresh_game_lists_the_three_pieces_and_says_what_is_missing) {
     CHECK(!Row(rows, Piece::Authentic).checked && !Row(rows, Piece::Loader).checked);
     CHECK(!f.m.AllChecksFinished());
     CHECK(!f.m.CanStart().can);
-    CHECK(Has(f.m.CanStart().reason, "Still finding out what is installed"));
+    CHECK(Has(f.m.CanStart().reason, "Checking what is installed"));
 
     f.Answers();
     rows = f.m.Rows();
     CHECK_EQ(Row(rows, Piece::Authentic).latest, std::string("0.168.0"));
     CHECK_EQ(Row(rows, Piece::Authentic).source, std::string("bodywalkvr.com - no checksum published yet"));
-    CHECK_EQ(Row(rows, Piece::Unleashed).source, std::string("GitHub release of bearstonem/d2r-pcvr, SHA-256 from GitHub"));
+    CHECK_EQ(Row(rows, Piece::Unleashed).source, std::string("GitHub (bearstonem/d2r-pcvr) - checksum published"));
     CHECK(Has(Row(rows, Piece::Authentic).how, "administrator"));
     CHECK(Has(Row(rows, Piece::Unleashed).how, "no administrator prompt"));
     CHECK(f.m.AllChecksFinished());
@@ -149,7 +155,7 @@ TEST(unticking_the_loader_with_a_mod_ticked_is_allowed_but_warned_about_when_it_
     differs.reviewed = false;
     f.m.SetLoader(differs, true);
     CHECK(f.m.IsChecked(Piece::Loader));
-    CHECK(Has(Row(f.m.Rows(), Piece::Loader).note, "not the reviewed ones"));
+    CHECK(Has(Row(f.m.Rows(), Piece::Loader).note, "differ from the verified 1.3.1-beta ones"));
     CHECK_EQ(Row(f.m.Rows(), Piece::Loader).installed, std::string("files differ"));
     f.m.Select(Piece::Loader, false);
     CHECK(!f.m.IsChecked(Piece::Loader));
@@ -163,7 +169,7 @@ TEST(a_reviewed_loader_is_not_ticked_and_says_so) {
     f.m.SetLoader(Reviewed(), true);
     f.Answers();
     const std::vector<InstallRow> rows = f.m.Rows();
-    CHECK_EQ(Row(rows, Piece::Loader).installed, std::string("reviewed 1.3.1-beta files"));
+    CHECK_EQ(Row(rows, Piece::Loader).installed, std::string("1.3.1-beta (verified)"));
     CHECK(Row(rows, Piece::Loader).installed_tone == Tone::Ok);
     CHECK(!Row(rows, Piece::Loader).checked);
     CHECK(Row(rows, Piece::Authentic).checked);
@@ -172,7 +178,7 @@ TEST(a_reviewed_loader_is_not_ticked_and_says_so) {
     LoaderStatus found;
     found.present = true;
     f.m.SetLoader(found, false);
-    CHECK_EQ(Row(f.m.Rows(), Piece::Loader).installed, std::string("found, checking its files..."));
+    CHECK_EQ(Row(f.m.Rows(), Piece::Loader).installed, std::string("checking its files..."));
     CHECK(!f.m.IsChecked(Piece::Loader));
     CHECK(!f.m.AllChecksFinished());
 }
@@ -202,8 +208,8 @@ TEST(an_outdated_mod_shows_the_badge_and_is_ticked_a_current_one_is_not) {
     for (const PieceJob& j : f.m.Jobs(false)) CHECK(j.piece != Piece::Unleashed && !j.force);
 }
 
-TEST(an_installed_mod_whose_version_is_unknown_counts_as_outdated) {
-    CHECK(IsUpdateFor("", Answer(Piece::Authentic, "0.168.0").latest));
+TEST(an_installed_mod_whose_version_is_unknown_is_not_offered_an_update) {
+    CHECK(!IsUpdateFor("", Answer(Piece::Authentic, "0.168.0").latest));                       // nothing is proven: no Update, no badge on the card
     CHECK(IsUpdateFor("0.167.0", Answer(Piece::Authentic, "0.168.0").latest));
     CHECK(!IsUpdateFor("0.168.0", Answer(Piece::Authentic, "0.168.0").latest));
     CHECK(!IsUpdateFor("0.169.0", Answer(Piece::Authentic, "0.168.0").latest));
@@ -230,13 +236,22 @@ TEST(a_failed_question_is_said_in_words_and_blocks_only_what_needs_it) {
     f.m.Select(Piece::Authentic, true);
     const StartState ss = f.m.CanStart();
     CHECK(!ss.can);
-    CHECK(Has(ss.reason, "D2R VR Authentic could not be found out"));
+    CHECK(Has(ss.reason, "Could not check for the newest D2R VR Authentic"));
     CHECK(Has(ss.reason, "Check again"));
-    CHECK(Has(Row(f.m.Rows(), Piece::Authentic).note, "press Check again"));
+    CHECK(Has(ss.reason, "no internet connection"));                                        // a server that cannot be reached is said in those words
+    CHECK(!Has(ss.reason, "error 12029"));                                                   // ... and not with the system's error number
+    CHECK(Has(Row(f.m.Rows(), Piece::Authentic).note, "Press Check again"));
     f.m.Select(Piece::Authentic, false);
     // other wordings of a problem stay short
     f.m.SetUpdate(Piece::Unleashed, Failed("the answer about the newest D2R VR Unleashed is not readable (x)"));
     CHECK_EQ(Row(f.m.Rows(), Piece::Unleashed).latest, std::string("could not be checked: an answer that makes no sense"));
+    f.m.Select(Piece::Unleashed, true);
+    CHECK(Has(f.m.CanStart().reason, "(an answer that makes no sense)") && !Has(f.m.CanStart().reason, "internet"));
+    f.m.SetUpdate(Piece::Unleashed, Failed("could not ask GitHub for the newest D2R VR Unleashed: api.github.com answered HTTP 403 (too many questions, or no access: try again later)"));
+    CHECK_EQ(Row(f.m.Rows(), Piece::Unleashed).latest, std::string("could not be checked: the server is busy, try again later"));
+    f.m.SetUpdate(Piece::Unleashed, Failed("could not ask GitHub for the newest D2R VR Unleashed: api.github.com answered HTTP 500"));
+    CHECK_EQ(Row(f.m.Rows(), Piece::Unleashed).latest, std::string("could not be checked: the server answered with an error"));
+    CHECK(IsNetworkFailure("cannot reach github.com: x") && IsNetworkFailure("no answer from bodywalkvr.com: x") && !IsNetworkFailure("not a list of releases"));
 }
 
 TEST(what_may_be_started_and_why_not) {
@@ -257,7 +272,7 @@ TEST(what_may_be_started_and_why_not) {
     f.m.Select(Piece::Authentic, true);
     f.m.SetChecking();                                                                       // asked again: a ticked mod is still waiting for its answer
     CHECK(!f.m.CanStart().can);
-    CHECK(Has(f.m.CanStart().reason, "Still finding out"));
+    CHECK(Has(f.m.CanStart().reason, "Checking for the newest"));
 }
 
 TEST(the_jobs_come_in_the_right_order_with_what_the_player_saw) {
@@ -381,7 +396,8 @@ TEST(a_run_marks_the_rows_and_counts_the_progress_and_says_what_it_did) {
     const std::vector<std::string> lines = f.m.SummaryLines();
     REQUIRE(lines.size() == 3);
     CHECK_EQ(lines[0], std::string("D2RLoader: installed"));
-    CHECK(Has(lines[1], "D2R VR Authentic: you declined the administrator prompt, so nothing was installed (E_UAC_DECLINED)"));
+    CHECK_EQ(lines[1], std::string("D2R VR Authentic: you declined the administrator prompt, so nothing was installed"));     // no error code: the log has it
+    CHECK_EQ(InstallModel::LogDetails(oa), std::string("[E_UAC_DECLINED] Windows asked ... No."));
     CHECK(Has(lines[2], "Not started"));
     Tone ht = Tone::Normal;
     const std::string head = f.m.Headline(&ht);
@@ -402,7 +418,7 @@ TEST(every_failure_has_words_and_a_short_mark) {
     };
     CHECK(Has(mean("E_UAC_DECLINED"), "you declined the administrator prompt"));
     CHECK(Has(mean("E_UNVERIFIED"), "no checksum is published"));
-    CHECK(Has(mean("E_HASH", -1, "the downloaded x has SHA-256 aa"), "a checksum did not match"));
+    CHECK(Has(mean("E_HASH", -1, "the downloaded x has SHA-256 aa"), "did not match its published checksum") && Has(mean("E_HASH", -1, "x"), "deleted"));
     CHECK(Has(mean("E_SETUP", 4), "the Setup stopped with an error while installing (exit code 4)"));
     CHECK(Has(mean("E_SETUP", 42), "exit code 42"));
     CHECK(Has(mean("E_MOD_NOT_INSTALLED", 0), "not in this game folder"));
@@ -410,7 +426,18 @@ TEST(every_failure_has_words_and_a_short_mark) {
     CHECK(Has(mean("E_ARCHIVE", -1, "bad"), "damaged"));
     CHECK(Has(mean("E_UNTRUSTED", -1, "bad"), "does not trust"));
     CHECK(Has(mean("E_IO", -1, "administrator rights are needed for this folder (G:/x)"), "Run as administrator"));
-    CHECK(Has(mean("E_IO", -1, "cannot reach the server"), "a network or disk problem"));
+    CHECK(Has(mean("E_IO", -1, "could not download x.zip: cannot reach github.com: The server name could not be resolved (error 12007)"), "no internet connection"));
+    CHECK(Has(mean("E_IO", -1, "could not download x: the download broke off: reset (error 12030)"), "Check your connection"));
+    CHECK(Has(mean("E_IO", -1, "cannot write G:/x.part"), "a disk or network problem") && Has(mean("E_IO", -1, "cannot write G:/x.part"), "cannot write"));
+    // no error code in the words, ever; the log's details carry it
+    for (const char* code : {"E_UAC_DECLINED", "E_UNVERIFIED", "E_HASH", "E_SETUP", "E_MOD_NOT_INSTALLED", "E_GAME_RUNNING", "E_GAME", "E_ARCHIVE", "E_UNTRUSTED", "E_IO", "E_ROLLBACK"}) {
+        Expect(!Has(mean(code, 3, "details"), "E_"), std::string(code) + ": no code in the words (" + mean(code, 3, "details") + ")");
+        PieceOutcome o;
+        o.status = JobStatus::Failed;
+        o.code = code;
+        o.message = "details";
+        Expect(Has(InstallModel::LogDetails(o), std::string("[") + code + "]"), std::string(code) + ": the log has the code");
+    }
     CHECK(Has(mean("E_ROLLBACK", -1, "x"), "putting the old files back failed"));
     PieceOutcome c;
     c.piece = Piece::Authentic;
@@ -470,11 +497,6 @@ TEST(a_finished_run_that_went_well_says_done) {
 // ================================================================== the rows: what is installed against what is newest, the ticks, the row's own buttons
 
 namespace {
-
-// a failed expectation of a table, with the row of the table in the message
-void Expect(bool ok, const std::string& what) {
-    if (!ok) t::Fail(__FILE__, __LINE__, what);
-}
 
 // The site's answer when it knows what is installed and has nothing newer ("0.0.0" for Authentic, "up_to_date" for the model), optionally naming its own older number.
 UpdateInfo Quiet(Piece p, const std::string& installed, const std::string& announced = "") {
@@ -548,7 +570,7 @@ TEST(a_downgrade_is_never_offered_and_a_suffix_is_the_same_base_version) {
     // not known what is installed: nothing is proven
     CHECK(StandingOf("", Answer(Piece::Authentic, "0.169.0").latest) == Standing::Unknown);
     CHECK(StandingOf("junk", Answer(Piece::Authentic, "0.169.0").latest) == Standing::Unknown);
-    CHECK(IsUpdateFor("", Answer(Piece::Authentic, "0.169.0").latest));                                      // (the main window's cards still offer it)
+    CHECK(!IsUpdateFor("", Answer(Piece::Authentic, "0.169.0").latest));                                     // (and the main window's cards do not offer it)
 }
 
 TEST(installed_0_170_0_against_a_site_at_0_169_is_quiet_nothing_ticked_install_selected_off) {
@@ -602,7 +624,7 @@ TEST(a_mod_whose_version_cannot_be_read_is_not_ticked_and_its_button_says_update
     q.Mod(Piece::Unleashed, true, "", Answer(Piece::Unleashed, "0.3.19", kSha));
     std::vector<InstallRow> rows = q.m.Rows();
     const InstallRow& a = Row(rows, Piece::Authentic);
-    CHECK_EQ(a.installed, std::string("installed (version unknown)"));
+    CHECK_EQ(a.installed, std::string("version unknown"));
     CHECK_EQ(a.latest, std::string("0.169.0"));
     CHECK(!a.checked);
     CHECK(a.enabled);                                                               // the player may tick it himself
@@ -732,7 +754,7 @@ TEST(d2rloader_has_install_repair_and_up_to_date_on_its_row) {
     CHECK_EQ(l.installed, std::string("files differ"));
     CHECK_EQ(l.action, std::string("Repair"));
     CHECK(l.action_enabled && l.enabled && !l.checked);
-    CHECK(Has(l.note, "Repair puts the reviewed ones in") && Has(l.note, "backed up"));
+    CHECK(Has(l.note, "Repair puts the verified ones in") && Has(l.note, "backed up"));
     CHECK(!f.m.CanStart().can);
     // the row's Repair: only D2RLoader
     f.m.TickOnly({Piece::Loader});

@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -83,14 +84,8 @@ std::wstring NoMnemonic(std::wstring s) {
     return s;
 }
 
-// StartMod's warnings name files as {game}/D2RLoader.exe and quote hashes: the log gets them with the folder prefix dropped, the message line
-// under the buttons without the bracketed technical detail ("... not the reviewed 1.3.1-beta ones (...hash...). The mods were made for ...").
-std::string ForLog(std::string w) {
-    const std::string tag = "{game}/";
-    for (size_t at; (at = w.find(tag)) != std::string::npos;) w.erase(at, tag.size());
-    return w;
-}
-
+// StartMod's warnings name files as {game}/D2RLoader.exe and quote hashes: the log gets them with the folder prefix dropped (ForLog, gui_model.h), the
+// message line under the buttons without the bracketed technical detail ("... (...hash...). The mods were made for ...").
 std::string ForMessage(const std::string& warning) {
     std::string w = warning;
     const size_t open = w.find(" (");
@@ -206,6 +201,7 @@ struct Card {
     RECT rc{}, icon{}, radio{}, desc{}, meta{}, note{}, badge{}, state{}, install{}, uninstall{}, link{}, version{};
     HWND radio_wnd = nullptr, link_wnd = nullptr, install_wnd = nullptr, uninstall_wnd = nullptr;
     std::wstring name, shown_name, description, meta_text, note_text, tip;
+    std::wstring install_tip, uninstall_tip, link_tip;    // the tooltips of the card's own buttons
     std::wstring badge_text;               // amber: "Update available: 0.167.0 -> 0.168.0"
     std::wstring install_label;            // "Install" / "Update", empty = no button
     std::wstring uninstall_label;          // "Uninstall" on an installed D2R VR mod, empty = no button
@@ -275,6 +271,8 @@ private:
     std::wstring Ellipsize(HDC dc, HFONT font, const std::wstring& s, int maxWidth) const;
     int CardAt(int x, int y) const;       // in client coordinates of the list
     void AddTooltips();
+    void AddControlTips();
+    void AddTip(HWND tips, HWND control, const std::wstring& text);
 
     // actions
     void OnCommand(int id, int code, HWND from);
@@ -284,6 +282,7 @@ private:
     void DoSettings();
     void DoLogs();
     void OnCardUninstall(int cardIndex);
+    void CheckUninstallEnded();           // an uninstaller started here or in the install view has ended: look at the disk, say what it left
     void DoAbout();
     void OpenInstallView(const std::vector<Piece>& tick, bool explicitTick);
     void OnCardInstall(int cardIndex);
@@ -316,6 +315,8 @@ private:
     HWND lbl_rt_ = nullptr, cmb_rt_ = nullptr, btn_rt_browse_ = nullptr, st_rt_ = nullptr, chk_close_ = nullptr, chk_update_ = nullptr;
     HWND btn_play_ = nullptr, st_reason_ = nullptr, btn_installview_ = nullptr, btn_settings_ = nullptr, btn_logs_ = nullptr, btn_about_ = nullptr;
     HWND st_msg_ = nullptr, edt_log_ = nullptr, tooltip_ = nullptr;
+    HWND control_tips_ = nullptr;          // the tooltips of the window's own controls (the cards have theirs in tooltip_)
+    HWND focus_ = nullptr;                 // the control that had the keyboard when the window was left: it gets it back
 
     Gdiplus::Bitmap* logo_ = nullptr;
     Gdiplus::Bitmap* authentic_icon_ = nullptr;
@@ -417,6 +418,7 @@ bool Window::Init() {
     LoadPictures();
     CreateControls();
     ApplyFonts();
+    AddControlTips();
 
     FillGameCombo();
     FillRuntimeCombo();
@@ -757,6 +759,12 @@ void Window::RebuildCards() {
         if (!m.publisher.empty()) c.tip += L"\nby " + W(m.publisher);
         c.tip += L"\n" + W(DisplayPath(m.dir));
         for (const std::string& n : m.notes) c.tip += L"\n" + W(n);
+        if (m.installed && m.known && m.found_version.empty())
+            c.tip += L"\nIts version could not be read, so no update is offered here. Install / update mods... can still update it.";
+        c.install_tip = offer.kind == Model::CardOffer::Kind::Update ? L"Open Install / update mods with " + c.name + L" ticked, to update it."
+                                                                     : L"Open Install / update mods with " + c.name + L" ticked, to install it.";
+        c.uninstall_tip = L"Remove " + c.name + L" with its own uninstaller. You are asked first.";
+        c.link_tip = L"Open " + W(m.homepage) + L" in your browser.";
         cards_.push_back(std::move(c));
         if (!m.known) has_others_ = true;
     }
@@ -821,7 +829,40 @@ void Window::AddTooltips() {
         ti.lpszText = const_cast<LPWSTR>(cards_[i].tip.c_str());
         ti.rect = cards_[i].rc;
         SendMessageW(tooltip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+        AddTip(tooltip_, cards_[i].install_wnd, cards_[i].install_tip);
+        AddTip(tooltip_, cards_[i].uninstall_wnd, cards_[i].uninstall_tip);
+        AddTip(tooltip_, cards_[i].link_wnd, cards_[i].link_tip);
     }
+}
+
+// A tool for a control (the tooltip follows it wherever it is laid out). A disabled control shows no tooltip: Windows sends it no mouse messages.
+void Window::AddTip(HWND tips, HWND control, const std::wstring& text) {
+    if (!tips || !control || text.empty()) return;
+    TTTOOLINFOW ti{};
+    ti.cbSize = sizeof ti;
+    ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+    ti.hwnd = GetParent(control);
+    ti.uId = reinterpret_cast<UINT_PTR>(control);
+    ti.lpszText = const_cast<LPWSTR>(text.c_str());          // copied by the tooltip control
+    SendMessageW(tips, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+}
+
+// What the controls that are not obvious do, in one sentence each.
+void Window::AddControlTips() {
+    control_tips_ = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, 0, 0, 0, 0, hwnd_, nullptr, inst_, nullptr);
+    if (!control_tips_) return;
+    SendMessageW(control_tips_, TTM_SETMAXTIPWIDTH, 0, S(380));
+    SendMessageW(control_tips_, TTM_SETDELAYTIME, TTDT_INITIAL, 500);
+    AddTip(control_tips_, cmb_game_, L"The Diablo II: Resurrected folders found on this PC (Steam, Battle.net, or one you picked).");
+    AddTip(control_tips_, btn_game_browse_, L"Pick the folder Diablo II: Resurrected is installed in: the one with D2R.exe.");
+    AddTip(control_tips_, cmb_rt_, L"The OpenXR runtime the game uses for this start. Windows' own setting is not changed.");
+    AddTip(control_tips_, btn_rt_browse_, L"Pick an OpenXR runtime manifest (a .json file) for this mod.");
+    AddTip(control_tips_, btn_play_, L"Start the game with the chosen mod (Enter).");
+    AddTip(control_tips_, btn_settings_, L"Open the chosen mod's own settings program.");
+    AddTip(control_tips_, chk_close_, L"Close this window as soon as the game has been started.");
+    AddTip(control_tips_, chk_update_, L"Ask bodywalkvr.com and GitHub once per start whether a newer version of a mod exists. Nothing is installed without you.");
+    AddTip(control_tips_, btn_installview_, L"Install D2RLoader and the VR mods, or update them: downloaded, checked and installed for you.");
+    AddTip(control_tips_, btn_logs_, L"Show the chosen mod's log file in Explorer (it is written while the game runs).");
 }
 
 std::wstring Window::Ellipsize(HDC dc, HFONT font, const std::wstring& s, int maxWidth) const {
@@ -1203,7 +1244,8 @@ void Window::PaintList(HDC dc, int dx, int dy, bool foreground) {
         SetBkMode(dc, TRANSPARENT);
         SelectObject(dc, fonts_.ui);
         SetTextColor(dc, kMuted);
-        DrawTextW(dc, L"The mods in the game folder will be listed here.", -1, &t, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        const wchar_t* empty = model_.game() && model_.game()->is_game ? L"No mods found in this game folder." : L"Pick the game folder above (Browse...) to see its mods.";
+        DrawTextW(dc, empty, -1, &t, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
     if (foreground && has_others_) {
         RECT h = others_heading_;
@@ -1458,7 +1500,7 @@ void Window::ShowOutcome(const StartOutcome& so) {
         for (const std::string& w : so.warnings) AppendLog("warning: " + ForLog(w));
         AppendLog("error [" + so.code + "]: " + so.message);
         msg_tone_ = Tone::Error;
-        SetStatic(st_msg_, so.message);
+        SetStatic(st_msg_, RefusalText(so));
         Layout();
         return;
     }
@@ -1518,7 +1560,8 @@ void Window::DoLogs() {
 // uninstaller (Unleashed's without /SILENT) then asks its own; a copy with no uninstaller (a ZIP) gets the words for removing it by hand.
 void Window::OnCardUninstall(int index) {
     if (index < 0 || index >= static_cast<int>(cards_.size())) return;
-    const ModEntry& m = model_.mods()[static_cast<size_t>(cards_[static_cast<size_t>(index)].mod)];
+    // a copy: the questions below run a message loop, and a refresh in it (the window activated again) may make the list anew
+    const ModEntry m = model_.mods()[static_cast<size_t>(cards_[static_cast<size_t>(index)].mod)];
     const Model::UninstallOffer o = model_.UninstallFor(m);
     if (o.kind == Model::UninstallOffer::Kind::None) return;
     const std::string refusal = model_.UninstallRefusal();
@@ -1533,14 +1576,42 @@ void Window::OnCardUninstall(int index) {
         return;
     }
     const std::wstring ask = W(UninstallQuestion(m, o));
-    if (MessageBoxW(hwnd_, ask.c_str(), (L"Uninstall " + W(m.name)).c_str(), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return;
-    // when the uninstaller ends the disk is looked at again: the mod is gone from the list
-    bool declined = false;
-    if (!StartUninstaller(hwnd_, o, hwnd_, WM_APP_REFRESH, &declined)) {
-        Say(Tone::Error, declined ? "The uninstaller was cancelled." : "Could not start the uninstaller.");
+    if (MessageBoxW(hwnd_, ask.c_str(), (L"Uninstall " + W(m.name)).c_str(), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) {
+        AppendLog("Not uninstalling " + m.name + ": you said no. Nothing was run.");
         return;
     }
+    // the answer took a while: the game may have been started meanwhile, or another uninstaller
+    const std::string late = model_.UninstallRefusal();
+    if (!late.empty()) {
+        Say(Tone::Warn, late);
+        return;
+    }
+    // when the uninstaller ends the disk is looked at again: the mod is gone from the list. Until then Play, Install and Uninstall wait.
+    bool declined = false;
+    std::function<bool()> finished;
+    if (!StartUninstaller(hwnd_, o, hwnd_, WM_APP_REFRESH, &declined, &finished)) {
+        Say(declined ? Tone::Warn : Tone::Error, declined ? "The uninstaller did not start: the Windows prompt was declined. Nothing was changed." : "Could not start the uninstaller " + DisplayPath(o.exe) + ".");
+        return;
+    }
+    model_.BeginUninstall(m, finished);
     AppendLog("Running the uninstaller of " + m.name + ": " + DisplayPath(o.exe));
+    Say(Tone::Normal, "Waiting for the uninstaller of " + m.name + " to finish.", false);
+    UpdateButtons();
+}
+
+void Window::CheckUninstallEnded() {
+    if (in_install_view_) return;                 // the view is open: it looks itself, and the main window looks again when it closes
+    const std::string name = model_.busy_name();
+    std::string id;
+    if (!model_.PollBusy(&id)) return;
+    AppendLog("The uninstaller of " + name + " has ended.");
+    FullRefresh();
+    bool still = false;
+    for (const ModEntry& e : model_.mods())
+        if (e.id == id && e.installed) still = true;
+    if (still) Say(Tone::Warn, name + " is still installed: its uninstaller ended without removing it.");
+    else Say(Tone::Ok, name + " was uninstalled.");
+    UpdateButtons();
 }
 
 void Window::DoAbout() {
@@ -1566,6 +1637,7 @@ void Window::OpenInstallView(const std::vector<Piece>& tick, bool explicitTick) 
     const InstallViewResult r = ShowInstallView(inst_, hwnd_, model_, tick, explicitTick);
     in_install_view_ = false;
     if (r.shot_failed) exit_code_ = 5;
+    CheckUninstallEnded();                        // one the view started and did not see end
     if (!opt_.screenshot.empty() && opt_.install_view) {          // the screenshot of the view is the whole run
         DestroyWindow(hwnd_);
         return;
@@ -1660,8 +1732,8 @@ void Window::OfferInstallView() {
     dirty_ = true;
     SaveIfDirty();
     const std::wstring ask = L"Neither D2R VR Authentic nor D2R VR Unleashed is installed in this game folder yet.\n\n"
-                             L"Open the install view to choose what to install? It lists D2RLoader and both mods, downloads what you tick, checks it and "
-                             L"installs it. You can open it later with \"Install / update mods...\".";
+                             L"Choose what to install now? The launcher lists D2RLoader and both mods, downloads what you tick, checks it and "
+                             L"installs it. You can do this later with \"Install / update mods...\".";
     if (MessageBoxW(hwnd_, ask.c_str(), L"Install a VR mod", MB_YESNO | MB_ICONQUESTION) == IDYES) OpenInstallView({}, false);
 }
 
@@ -1708,6 +1780,7 @@ void Window::OnLoader(LoaderResult* r) {
 }
 
 void Window::Poll() {
+    CheckUninstallEnded();
     const bool running = model_.GameRunning();
     bool changed = running != game_running_;
     game_running_ = running;
@@ -1934,10 +2007,24 @@ LRESULT Window::OnMain(UINT m, WPARAM w, LPARAM l) {
             if (w) FullRefresh();            // came back from Explorer or an installer: the mods may have changed
             return 0;
 
+        case WM_ACTIVATE:
+            // as a dialog does: the keyboard comes back to the control that had it (after the install view, a question, another program)
+            if (LOWORD(w) == WA_INACTIVE) {
+                HWND f = GetFocus();
+                if (f && IsChild(hwnd_, f)) focus_ = f;
+            } else if (!HIWORD(w)) {
+                // else (the first activation, or that control is gone): Play when it can be pressed, else the game folder
+                const bool back = focus_ && IsWindow(focus_) && IsChild(hwnd_, focus_) && IsWindowVisible(focus_) && IsWindowEnabled(focus_);
+                SetFocus(back ? focus_ : IsWindowEnabled(btn_play_) ? btn_play_ : IsWindowEnabled(cmb_game_) ? cmb_game_ : btn_game_browse_);
+                return 0;
+            }
+            break;
+
         case WM_APP_LOADER:
             OnLoader(reinterpret_cast<LoaderResult*>(l));
             return 0;
         case WM_APP_REFRESH:
+            CheckUninstallEnded();
             FullRefresh();
             UpdateButtons();
             return 0;

@@ -52,7 +52,7 @@ The window's cards, update badges and install rows, `vrmodlauncher mods` and the
 2. the `version` string of a manifest that does **not** validate (a field of a newer or older schema - the launcher reads it leniently from the raw JSON, only when the file's `id` is this mod's and its `d2rloader_mod`, if named, is this folder); the "is not valid" note stays;
 3. the ProductVersion in the version resource (VERSIONINFO) of the DLL in `<mod>\d2rloader\plugins` whose **Comments** carry `mod-id=<id>` (`d2r-vr`, `d2r-pcvr`; tokens separated by spaces, `;` or `,`; the file name does not matter). A mod whose Setup writes no manifest
    (today D2R VR Unleashed) should keep `mod-id=` and its version in its plugin's resource: `ProductName "D2R PCVR"`, `ProductVersion "0.3.19"`, `Comments "mod-id=d2r-pcvr; plugin-id=d2r-pcvr-vrcam; ..."`; ours says `mod-id=d2r-vr edition=full`;
-4. otherwise the version is unknown ("installed (version unknown)"): nothing is ticked for it and nothing is claimed about updates. The built-in profile's `version` is never used for this.
+4. otherwise the version is unknown (the install view says "version unknown"; the card offers no update): nothing is ticked for it and nothing is claimed about updates. The built-in profile's `version` is never used for this.
 
 The manifest's own `version` stays what a launch plan carries (`VRMOD_ACTIVE_VERSION`). Versions are compared as numbers part by part (`0.3.9` < `0.3.19`, `0.169` = `0.169.0`); a `-suffix` is the same base version, so
 `0.170.0-launcher-test` is `0.170.0`, and the launcher never offers an update to a release that is older than or equal to what is installed.

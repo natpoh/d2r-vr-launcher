@@ -3,6 +3,7 @@
 // Model, so what the headless run does is what the Play button does. (Tests: tests/gui_model_test.cpp.)
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -71,6 +72,8 @@ struct PlayState {
 
 // A path as the player knows it: backslashes.
 std::string DisplayPath(const fs::path& p);
+// A note of the library for the window's log: the "{game}/" placeholder of a path inside the game folder is dropped ("{game}/D2RLoader.exe" -> "D2RLoader.exe").
+std::string ForLog(std::string note);
 
 class Model {
 public:
@@ -106,8 +109,10 @@ public:
     // ---- what the servers said about the newest releases (the quiet check at start, the install view's own check)
     void SetLatest(const UpdateInfo& u);                     // an answer; a question that failed (u.checked false) leaves what was known
     const Release* LatestOf(const std::string& id) const;    // nullptr: not asked, or it failed
-    // What a mod's card offers: "Install" for a known mod that is not installed, "Update" when the newest release is newer than the installed one,
-    // and then the amber badge "Update available: 0.167.0 -> 0.168.0". Nothing for a mod that is current, unknown or not one of the two VR mods.
+    // What a mod's card offers: "Install" for a known mod that is not installed, "Update" when the newest release is PROVEN newer than the installed one
+    // (IsUpdateFor: the install view's rule), and then the amber badge "Update available: 0.167.0 -> 0.168.0". Nothing for a mod that is current, newer than
+    // the newest release (never a downgrade), installed with a version that could not be read (nothing is proven: the install view's row explains and offers
+    // Update), or not one of the two VR mods.
     struct CardOffer {
         enum class Kind { None, Install, Update } kind = Kind::None;
         std::string label;                                   // "Install", "Update"
@@ -126,8 +131,17 @@ public:
         std::string explanation;                             // for Explain: what the player does by hand
     };
     UninstallOffer UninstallFor(const ModEntry& m) const;
-    // Why "Uninstall" is refused right now ("" = it may go on): the game runs, or there is no game folder.
+    // Why "Uninstall" is refused right now ("" = it may go on): there is no game folder, an uninstaller is still running, or the game runs.
     std::string UninstallRefusal() const;
+
+    // ---- one thing at a time: a mod's own uninstaller started from a card or from the install view's row. While it runs, Play, Install and another
+    // Uninstall are refused with BusyReason() (the uninstaller holds the mod's files). `finished` says whether its process has ended; PollBusy asks it.
+    void BeginUninstall(const ModEntry& m, std::function<bool()> finished);
+    // true once, when the uninstaller has just ended (*endedId: the mod's id): the caller looks at the disk again. false while it runs or when idle.
+    bool PollBusy(std::string* endedId = nullptr);
+    bool busy() const { return !busy_id_.empty(); }
+    const std::string& busy_name() const { return busy_name_; }
+    std::string BusyReason() const;                          // "" when nothing runs
     // The quiet look at start: the setting is on, there is a game folder, and --no-update-check was not given.
     bool UpdateCheckWanted() const;
     // First run: a game folder was found (not given with --game), none of the two VR mods is installed, and the install view was not offered before.
@@ -173,11 +187,17 @@ private:
     int mod_ = -1;
     std::vector<RuntimeChoice> runtimes_;
     std::map<std::string, Release> latest_;      // by mod id
+    std::string busy_id_, busy_name_;            // the mod whose uninstaller runs ("" = none)
+    std::function<bool()> busy_finished_;
     Logger log_;
 };
 
 // The question asked before a mod's own uninstaller is run (the cards' Uninstall button and the install view's row ask the same): it names the mod and the uninstaller.
 std::string UninstallQuestion(const ModEntry& m, const Model::UninstallOffer& o);
+
+// What the window says when Play was refused (so.code not empty): plain words with what to do next, no error code (the log has the code and StartMod's own
+// message). The game running, D2RLoader missing and a runtime that cannot be used get their own words; anything else is StartMod's message as a sentence.
+std::string RefusalText(const StartOutcome& so);
 
 // The text a headless `--play` prints (and the window logs): warnings, then the refusal / the plan / "started ...". `exit_code` gets the
 // process exit code.

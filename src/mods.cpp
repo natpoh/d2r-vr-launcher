@@ -525,14 +525,14 @@ StartOutcome StartMod(const StartRequest& req, ProcessProbe& probe, LaunchBacken
     const std::vector<std::string> running = probe.Running(names);
     if (!running.empty()) return refuse("E_GAME_RUNNING", "Close " + running.front() + " first: the game is running.");
     if (!mod.installed) return refuse("E_MOD_NOT_INSTALLED", mod.name + " is not installed in this game folder.");
-    if (!mod.launchable) return refuse("E_PRECONDITION", mod.name + " has no way to be started.");
+    if (!mod.launchable) return refuse("E_PRECONDITION", mod.name + " cannot be started: its manifest names no way to start it.");
     for (const std::string& n : GlobalPluginNotes(req.game)) out.warnings.push_back(n);
     for (const std::string& n : ReShadeEnvironmentNotes(env)) out.warnings.push_back(n);
     const LoaderStatus loader = CheckLoader(req.game, true);
     if (!loader.present) return refuse("E_LOADER_MISSING", "D2RLoader.exe is not in the game folder. The mods run only under D2RLoader 1.3.1.");
     if (!loader.reviewed) {
         // (the file names and hashes are in loader.notes: `mods` and the log have them; a player needs the one sentence)
-        out.warnings.push_back("D2RLoader's files are not the reviewed 1.3.1-beta ones. The mods were made for 1.3.1-beta.");
+        out.warnings.push_back("D2RLoader's files differ from the verified 1.3.1-beta ones the mods were made for.");
     }
 
     LaunchContext ctx;

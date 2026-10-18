@@ -17,12 +17,15 @@ namespace gui {
 
 // "12.3 MB" / "840 KB"
 std::string FormatBytes(uint64_t bytes);
+// Does an error from the network layer (net.cpp, releases.cpp) mean the server could not be reached at all - no internet, a server that is down or does not answer?
+bool IsNetworkFailure(const std::string& error);
 
 // ---- what the main window's cards show about a release that is newer than the installed one
 // "Update available: 0.167.0 -> 0.168.0"; "" when nothing is newer. `installedVersion` "" = installed, version not known.
 std::string UpdateBadgeText(const std::string& installedVersion, const std::string& latestVersion);
-// Is `latest` newer than what is installed (an installed mod whose version is unknown counts as older). False for a release the server calls up to date, and
-// never true for an older or the same release: versions are compared as numbers, a suffix ("-launcher-test", "-modlayout-candidate") is the same base version.
+// Is `latest` PROVEN newer than what is installed: StandingOf(...) == Older, the install view's rule. False when the installed version is not known (nothing
+// is proven), for a release the server calls up to date, and for an older or the same release: versions are compared as numbers, a suffix
+// ("-launcher-test", "-modlayout-candidate") is the same base version. The main window's cards use it for their Update button and amber badge.
 bool IsUpdateFor(const std::string& installedVersion, const Release& latest);
 
 // What an installed version stands to the newest release: the install view's rule for ticking, labelling and the Newest line.
@@ -131,7 +134,9 @@ public:
     std::string Headline(Tone* tone) const;          // "Done: 2 installed" / "1 installed, 1 failed - see the marks and the log"
 
     // ---- words for one outcome
-    static std::string Meaning(const PieceOutcome& o);                  // for the log and the summary
+    // For the row's note, the summary and the log: plain words, no error code (the log adds the code and the details: LogDetails).
+    static std::string Meaning(const PieceOutcome& o);
+    static std::string LogDetails(const PieceOutcome& o);               // "[E_HASH] the downloaded x has SHA-256 ..." for the log, "" when there is nothing more
     static std::string ShortMark(const PieceOutcome& o, Tone* tone);    // for the mark on the row
 
     // the pure part of Progress(), for tests
