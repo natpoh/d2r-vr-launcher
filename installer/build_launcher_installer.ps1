@@ -5,7 +5,7 @@
 # The installer is per user (PrivilegesRequired=lowest): no UAC prompt. A SHA-256 file is written beside it.
 param(
     [Parameter(Mandatory = $true)][string]$BuildDir,
-    [string]$Version = '0.3.1',
+    [string]$Version = '0.3.2',
     [string]$OutputDirectory = (Join-Path $PSScriptRoot 'Output'),
     [string]$ISCC = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 )

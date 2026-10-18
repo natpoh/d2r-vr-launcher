@@ -9,7 +9,7 @@ sha256, a GitHub-style releases list, installers that are copies of fake_setup.e
 test switches VRML_ALLOW_HTTP_HOST / VRML_URL_* / --pin-file, which it honours only together.
 
 What is checked
-  0. the launcher's version: src/util.h, the exe's version resource and `vrmodlauncher version` agree (0.3.1)
+  0. the launcher's version: src/util.h, the exe's version resource and `vrmodlauncher version` agree (0.3.2)
   1. `--install-run` (what the view's Install does, with no window): every piece, the order, the E_UNVERIFIED refusal and --accept-unverified, a wrong hash,
      a cancel half way through a slow download, a running game, a Setup that fails / is cancelled / installs elsewhere, a folder that is not a game, and that the
      test aids refuse to run without the loopback switch
@@ -690,7 +690,7 @@ def part_0_version():
     import re
     want = re.search(r'kLauncherVersion = "([^"]+)"', (HERE / "src" / "util.h").read_text(encoding="utf-8")).group(1)
     got = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-Item '{EXE}').VersionInfo.FileVersion"], capture_output=True, text=True).stdout.strip()
-    check(want == "0.3.1", f"the launcher is 0.3.1 ({want})")
+    check(want == "0.3.2", f"the launcher is 0.3.2 ({want})")
     check(got == want, f"the exe's version resource follows it ({got!r})")
     cli = Path(EXE).with_name("vrmodlauncher.exe")
     if cli.exists():

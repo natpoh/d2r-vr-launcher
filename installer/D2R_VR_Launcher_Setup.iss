@@ -6,7 +6,7 @@
 ; What the launcher remembers (%LOCALAPPDATA%\VRModLauncher: settings.json, logs) stays when it is uninstalled - it is the player's, and tiny.
 
 #ifndef LauncherVersion
-  #define LauncherVersion "0.3.1"
+  #define LauncherVersion "0.3.2"
 #endif
 #ifndef BuildDir
   #error BuildDir (the folder with D2RVRLauncher.exe and vrmodlauncher.exe) must be given: /DBuildDir=...
