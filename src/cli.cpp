@@ -19,6 +19,10 @@
 #include <windows.h>
 #endif
 
+#ifndef _WIN32
+extern char** environ;     // at file scope: a declaration inside namespace vrml would name vrml::environ, which nothing defines
+#endif
+
 namespace vrml {
 
 std::map<std::string, std::string> CurrentEnvironment() {
@@ -35,8 +39,7 @@ std::map<std::string, std::string> CurrentEnvironment() {
         FreeEnvironmentStringsW(block);
     }
 #else
-    extern char** environ;
-    for (char** e = environ; e && *e; ++e) {
+    for (char** e = ::environ; e && *e; ++e) {
         std::string kv(*e);
         size_t eq = kv.find('=');
         if (eq != std::string::npos) env[kv.substr(0, eq)] = kv.substr(eq + 1);
