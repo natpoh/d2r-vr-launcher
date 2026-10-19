@@ -160,7 +160,7 @@ enum : int {
     IDC_CLOSE_CHECK, IDC_PLAY, IDC_PLAY_REASON, IDC_SETTINGS, IDC_LOGS, IDC_RESERVED_UNINSTALL /* was the bottom-row button: each installed card has its own now */, IDC_ABOUT,
     IDC_MESSAGE, IDC_LOG, IDC_INSTALL_VIEW, IDC_UPDATE_CHECK,
     IDC_CARD_RADIO = 1000,        // + the card's number
-    IDC_CARD_LINK = 2000,         // the card's "Website" link
+    IDC_CARD_LINK = 2000,         // the card's links: "Website" and its support place ("Discord" / "Support"), one SysLink
     IDC_CARD_INSTALL = 3000,      // the card's "Install" / "Update" button
     IDC_CARD_UNINSTALL = 4000,    // the card's "Uninstall" button (an installed D2R VR Authentic / Unleashed)
 };
@@ -215,6 +215,8 @@ struct Card {
     wchar_t letter = L'?';
     bool installed = false;
     bool has_link = false;
+    std::vector<CardLink> links;           // Website, then Discord / Support: the links of link_wnd, in order (NMLINK's iLink)
+    bool links_stacked = false;            // too wide for one line beside the card: one link under the other
 };
 
 // ------------------------------------------------------------------ the window
@@ -752,7 +754,8 @@ void Window::RebuildCards() {
                 c.letter = static_cast<wchar_t>(towupper(ch));
                 break;
             }
-        c.has_link = m.known && IsWebUrl(m.homepage);                 // the small "Website" link
+        c.links = CardLinks(m);                                         // the small "Website" and "Discord" / "Support" links
+        c.has_link = !c.links.empty();
         const Model::CardOffer offer = model_.OfferFor(m);
         if (offer.kind != Model::CardOffer::Kind::None) c.install_label = W(offer.label);
         c.badge_text = W(offer.badge);
@@ -763,6 +766,8 @@ void Window::RebuildCards() {
         if (!m.publisher.empty()) c.tip += L"\nby " + W(m.publisher);
         c.tip += L"\n" + W(DisplayPath(m.dir));
         for (const std::string& n : m.notes) c.tip += L"\n" + W(n);
+        const std::string help = CardInstallHelp(m);                   // a known mod that is not installed: its author's words about installing it
+        if (!help.empty()) c.tip += L"\n\n" + W(help);
         cards_.push_back(std::move(c));
         if (!m.known) has_others_ = true;
     }
@@ -798,7 +803,9 @@ void Window::RebuildCards() {
         DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | LWS_TRANSPARENT;
         if (!group_ended) style |= WS_GROUP;
         group_ended = true;
-        c.link_wnd = CreateWindowExW(0, WC_LINK, L"<a>Website</a>", style, 0, 0, 10, 10, list_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CARD_LINK + static_cast<int>(i))), inst_, nullptr);
+        std::wstring markup;
+        for (const CardLink& k : c.links) markup += (markup.empty() ? L"" : L"   ") + (L"<a>" + W(k.label) + L"</a>");
+        c.link_wnd = CreateWindowExW(0, WC_LINK, markup.c_str(), style, 0, 0, 10, 10, list_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CARD_LINK + static_cast<int>(i))), inst_, nullptr);
     }
     for (Card& c : cards_) {
         SendMessageW(c.radio_wnd, WM_SETFONT, reinterpret_cast<WPARAM>(fonts_.bold), TRUE);
@@ -910,7 +917,27 @@ int Window::ComputeCards(int width) {
         if (!c.install_label.empty()) below = c.install.bottom + S(4);
         c.uninstall = RECT{right_x, below, right_x + S(90), below + btn_h};
         if (!c.uninstall_label.empty()) below = c.uninstall.bottom + S(4);
-        c.link = RECT{right_x, below, right_x + S(70), below + fonts_.ui_h + S(4)};
+        // the links: side by side when they fit the column, else one under the other (the SysLink wraps at the spaces between them)
+        int links_w = 0, widest = 0;
+        if (c.has_link) {
+            HGDIOBJ old = SelectObject(dc, fonts_.ui);
+            for (size_t k = 0; k < c.links.size(); ++k) {
+                const std::wstring t = W(c.links[k].label);
+                SIZE sz{};
+                GetTextExtentPoint32W(dc, t.c_str(), static_cast<int>(t.size()), &sz);
+                widest = std::max<int>(widest, sz.cx);
+                links_w += sz.cx;
+                if (k > 0) {
+                    GetTextExtentPoint32W(dc, L"   ", 3, &sz);
+                    links_w += sz.cx;
+                }
+            }
+            SelectObject(dc, old);
+        }
+        const int link_line = fonts_.ui_h + S(4);
+        c.links_stacked = c.links.size() > 1 && links_w + S(6) > right_w;
+        const int link_w = c.links_stacked ? widest + S(6) : std::max<int>(S(70), links_w + S(6));
+        c.link = RECT{right_x, below, right_x + link_w, below + (c.links_stacked ? static_cast<int>(c.links.size()) * fonts_.ui_h + S(4) : link_line)};
         int card_bottom = std::max<int>(c.icon.bottom, bottom) + pad;
         if (!c.install_label.empty()) card_bottom = std::max<int>(card_bottom, c.install.bottom + pad);
         if (!c.uninstall_label.empty()) card_bottom = std::max<int>(card_bottom, c.uninstall.bottom + pad);
@@ -2123,10 +2150,11 @@ LRESULT Window::OnList(UINT m, WPARAM w, LPARAM l) {
             if ((nh->code == NM_CLICK || nh->code == NM_RETURN) && nh->idFrom >= static_cast<UINT_PTR>(IDC_CARD_LINK) &&
                 nh->idFrom < static_cast<UINT_PTR>(IDC_CARD_LINK + static_cast<int>(cards_.size()))) {
                 const Card& c = cards_[nh->idFrom - IDC_CARD_LINK];
-                const ModEntry& mod = model_.mods()[static_cast<size_t>(c.mod)];
-                if (IsWebUrl(mod.homepage)) {
-                    ShellExecuteW(hwnd_, L"open", W(mod.homepage).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                    AppendLog("Opened " + mod.homepage);
+                const int k = reinterpret_cast<const NMLINK*>(l)->item.iLink;          // which of the card's links: Website, then Discord / Support
+                if (k >= 0 && static_cast<size_t>(k) < c.links.size() && IsWebUrl(c.links[static_cast<size_t>(k)].url)) {
+                    const std::string& url = c.links[static_cast<size_t>(k)].url;
+                    ShellExecuteW(hwnd_, L"open", W(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                    AppendLog("Opened " + url);
                 }
             }
             return 0;

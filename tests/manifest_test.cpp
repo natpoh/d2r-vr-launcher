@@ -91,6 +91,19 @@ TEST(issue_paths_point_at_the_field) {
     CHECK_EQ(issues[0].path, std::string("/colour"));
 }
 
+TEST(install_help_is_an_optional_text) {
+    Manifest m;
+    std::vector<Issue> issues;
+    CHECK(Load(Src() / "tests" / "fixtures" / "manifests" / "ok_install_help.json", &m, &issues));
+    CHECK_EQ(m.install_help, std::string("Close the game, run the Setup, choose Full install."));
+    CHECK(Load(Src() / "tests" / "fixtures" / "manifests" / "ok_d2rloader_mod.json", &m, &issues));
+    CHECK(m.install_help.empty());
+    issues.clear();
+    CHECK(!Load(Src() / "tests" / "fixtures" / "manifests" / "bad_install_help_type.json", &m, &issues));
+    REQUIRE(!issues.empty());
+    CHECK_EQ(issues[0].path, std::string("/install_help"));
+}
+
 TEST(unparseable_json_is_an_error) {
     tt::Sandbox sb;
     tt::Write(sb.root / "m.json", "{ \"schema\": ");

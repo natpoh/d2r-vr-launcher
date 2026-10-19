@@ -98,6 +98,25 @@ TEST(a_fresh_game_lists_the_three_pieces_and_says_what_is_missing) {
     CHECK(f.m.AllChecksFinished());
 }
 
+TEST(a_mod_that_is_not_installed_shows_its_install_help_in_its_row) {
+    // bearstonem's review: his words to players about installing D2R VR Unleashed, wherever the launcher shows install help for it
+    Fresh f;
+    f.m.SetInstallHelp(Piece::Unleashed, "Close D2R and fully exit Steam before installing.");
+    f.m.SetInstallHelp(Piece::Loader, "never shown");
+    f.m.SetChecking();
+    CHECK_EQ(Row(f.m.Rows(), Piece::Unleashed).help, std::string("Close D2R and fully exit Steam before installing."));     // also while the servers are asked
+    f.Answers();
+    std::vector<InstallRow> rows = f.m.Rows();
+    CHECK_EQ(Row(rows, Piece::Unleashed).help, std::string("Close D2R and fully exit Steam before installing."));
+    CHECK(Row(rows, Piece::Authentic).help.empty());                 // no text given: nothing
+    CHECK(Row(rows, Piece::Loader).help.empty());                    // D2RLoader has none
+    // once it is installed the row says what is installed and newest instead
+    f.m.SetInstalled(Piece::Unleashed, true, "0.3.19");
+    CHECK(Row(f.m.Rows(), Piece::Unleashed).help.empty());
+    f.m.SetInstalled(Piece::Unleashed, false, "");
+    CHECK(!Row(f.m.Rows(), Piece::Unleashed).help.empty());
+}
+
 TEST(authentic_says_when_a_checksum_is_published) {
     Fresh f;
     f.Answers(kSha);

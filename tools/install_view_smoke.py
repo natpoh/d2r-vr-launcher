@@ -578,6 +578,26 @@ def unin(view, i):
     return rowbtn(view, V_UN, i)
 
 
+ROW_WAIT = 20      # seconds EACH row gets to show its own result
+
+
+def row_is(view, base, i, want):
+    """Row i's own button (base V_ACT or V_UN) is `want`: a (label, can it be pressed) pair, or a label alone ("" = hidden)."""
+    got = rowbtn(view, base, i)
+    return got == want if isinstance(want, tuple) else got[0] == want
+
+
+def rows_show(view, act=None, un=None, timeout=ROW_WAIT):
+    """Waits until every row named shows what it should: act / un are {row: want} for the rows' own Install-Update and Uninstall buttons.
+    Each row is polled on its own, with its own timeout: the rows hear different servers and run different jobs, so one row being ready says nothing
+    about another (bearstonem's review: waiting for Authentic's Update and then reading Unleashed's result at once was flaky). True when all of them got there."""
+    ok = True
+    for base, wants in ((V_ACT, act or {}), (V_UN, un or {})):
+        for i, want in wants.items():
+            ok = wait_for(lambda: row_is(view, base, i, want), timeout) and ok
+    return ok
+
+
 def press_row(view, base, i):
     press(dlg(dlg(view, V_ROWS), base + i))
 
@@ -690,7 +710,7 @@ def part_0_version():
     import re
     want = re.search(r'kLauncherVersion = "([^"]+)"', (HERE / "src" / "util.h").read_text(encoding="utf-8")).group(1)
     got = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-Item '{EXE}').VersionInfo.FileVersion"], capture_output=True, text=True).stdout.strip()
-    check(want == "0.3.4", f"the launcher is 0.3.4 ({want})")
+    check(want == "0.3.5", f"the launcher is 0.3.5 ({want})")
     check(got == want, f"the exe's version resource follows it ({got!r})")
     cli = Path(EXE).with_name("vrmodlauncher.exe")
     if cli.exists():
@@ -829,7 +849,7 @@ def part_2_view():
         check(user32.IsWindowEnabled(dlg(view, V_INSTALL)) and wtext(dlg(view, V_CLOSE)) == "Close" and wtext(dlg(view, V_INSTALL)).replace("&", "") == "Install selected", "Install selected is on, the other button says Close")
         check(view_tab_order(view) == [1100, V_ACT, 1101, V_ACT + 1, 1102, V_ACT + 2, V_CHECK, V_INSTALL, V_CLOSE, V_LOG],
               f"Tab visits each row's box and its own button (Uninstall is hidden: nothing is installed), then Check again, Install selected, Close, the log ({view_tab_order(view)})")
-        check([act(view, i) for i in range(3)] == [("Install", True)] * 3 and [unin(view, i)[0] for i in range(3)] == ["", "", ""],
+        check(rows_show(view, act={i: ("Install", True) for i in range(3)}, un={i: "" for i in range(3)}),
               f"a fresh game: every row says Install and has no Uninstall button ({[act(view, i) for i in range(3)]})")
 
         # the tick rules
@@ -897,9 +917,9 @@ def part_2_view():
             check(not box_on(view, 2) and not box_on(view, 0), "the current Unleashed and the reviewed D2RLoader have their boxes off")
             set_box(view, 2, True)
             check(ticked(view) == [False, True, False], f"...a click on the box of what is up to date changes nothing: it cannot be ticked, so there is no repair tick ({ticked(view)})")
-            check(act(view, 2) == ("Up to date", False) and act(view, 1) == ("Update", True) and act(view, 0) == ("Up to date", False),
+            check(rows_show(view, act={2: ("Up to date", False), 1: ("Update", True), 0: ("Up to date", False)}),
                   f"the rows' own buttons: Authentic Update, Unleashed and D2RLoader a greyed Up to date ({[act(view, i) for i in range(3)]})")
-            check(unin(view, 1) == ("Uninstall", True) and unin(view, 2) == ("Uninstall", True) and unin(view, 0)[0] == "", "Uninstall on the two installed mods, never on D2RLoader")
+            check(rows_show(view, un={1: ("Uninstall", True), 2: ("Uninstall", True), 0: ""}), "Uninstall on the two installed mods, never on D2RLoader")
     finally:
         app.close()
 
@@ -1013,16 +1033,16 @@ def part_2b_rows():
         if view:
             log = log_of(view)
             check("D2R VR Authentic: the site names 0.169.0, you have 0.170.0: a newer version, nothing to update" in log, f"the log: the site's 0.169.0 is older than the installed 0.170.0 ({log[-400:]!r})")
-            check(ticked(view) == [False, False, False], f"nothing is ticked ({ticked(view)})")
+            check(wait_for(lambda: ticked(view) == [False, False, False], 5), f"nothing is ticked ({ticked(view)})")
             check(not box_on(view, 1) and not box_on(view, 0) and (not box_on(view, 2) if have_plugins else True), "...the boxes of what is up to date are off")
-            check(act(view, 1) == ("Up to date", False) and act(view, 0) == ("Up to date", False), f"Authentic and D2RLoader: a greyed 'Up to date' ({act(view, 1)}, {act(view, 0)})")
+            check(rows_show(view, act={1: ("Up to date", False), 0: ("Up to date", False)}), f"Authentic and D2RLoader: a greyed 'Up to date' ({act(view, 1)}, {act(view, 0)})")
             if have_plugins:
                 check("D2R VR Unleashed: you have the newest version" in log, "Unleashed's version was read from its plugin and equals the newest (0.3.19)")
-                check(act(view, 2) == ("Up to date", False), f"Unleashed: a greyed 'Up to date' ({act(view, 2)})")
+                check(rows_show(view, act={2: ("Up to date", False)}), f"Unleashed: a greyed 'Up to date' ({act(view, 2)})")
             check(not user32.IsWindowEnabled(dlg(view, V_INSTALL)), "Install selected is off")
             expect = "Nothing to install: everything is up to date." if have_plugins else "Tick what you want to install."
             check(expect in notice_of(view), f"...and the notice says why ({notice_of(view)[:80]!r})")
-            check(unin(view, 1) == ("Uninstall", True) and unin(view, 2) == ("Uninstall", True) and unin(view, 0)[0] == "", f"Uninstall on both installed mods, none on D2RLoader ({unin(view, 1)}, {unin(view, 2)}, {unin(view, 0)})")
+            check(rows_show(view, un={1: ("Uninstall", True), 2: ("Uninstall", True), 0: ""}), f"Uninstall on both installed mods, none on D2RLoader ({unin(view, 1)}, {unin(view, 2)}, {unin(view, 0)})")
             set_box(view, 1, True)
             check(ticked(view)[1] is False, "a click on Authentic's box does nothing")
             press(dlg(view, V_INSTALL))
@@ -1060,15 +1080,15 @@ def part_2b_rows():
     try:
         check(view is not None, "the view opens")
         if view:
-            check(ticked(view) == [False, False, False], f"nothing is ticked, not even the mod whose version is unknown ({ticked(view)})")
-            check(act(view, 2) == ("Update", True) and box_on(view, 2), f"Unleashed's button says Update and its box can be ticked ({act(view, 2)})")
-            check(act(view, 1) == ("Up to date", False), "Authentic (0.168.0, the newest) is a greyed Up to date")
+            check(wait_for(lambda: ticked(view) == [False, False, False], 5), f"nothing is ticked, not even the mod whose version is unknown ({ticked(view)})")
+            check(rows_show(view, act={2: ("Update", True)}) and box_on(view, 2), f"Unleashed's button says Update and its box can be ticked ({act(view, 2)})")
+            check(rows_show(view, act={1: ("Up to date", False)}), "Authentic (0.168.0, the newest) is a greyed Up to date")
             check(not user32.IsWindowEnabled(dlg(view, V_INSTALL)) and "Tick what you want to install" in notice_of(view), f"Install selected is off ({notice_of(view)[:60]!r})")
             press_row(view, V_ACT, 2)
             check(run_done(view, 60), f"its Update runs at once ({notice_of(view)[:70]!r})")
             check(setup_runs() == ["D2R-PCVR"], f"only Unleashed's Setup ran ({setup_runs()})")
             check("Done: 1 installed" in notice_of(view), f"...the summary says one piece ({notice_of(view)!r})")
-            check(wait_for(lambda: act(view, 2) == ("Up to date", False), 20), f"afterwards the row is up to date ({act(view, 2)})")
+            check(rows_show(view, act={2: ("Up to date", False)}), f"afterwards the row is up to date ({act(view, 2)})")
             check(ticked(view) == [False, False, False], "...and nothing is ticked")
     finally:
         app.close()
@@ -1086,13 +1106,13 @@ def part_2b_rows():
         try:
             check(view is not None, "the view opens")
             if view:
-                check(ticked(view) == [False, True, True], f"the missing Authentic and the proven update of Unleashed are ticked ({ticked(view)})")
-                check(act(view, 2) == ("Update", True) and act(view, 1) == ("Install", True), f"the rows say Update and Install ({act(view, 2)}, {act(view, 1)})")
-                check(unin(view, 2) == ("Uninstall", True) and unin(view, 1)[0] == "", "Uninstall only on the installed Unleashed")
+                check(wait_for(lambda: ticked(view) == [False, True, True], 5), f"the missing Authentic and the proven update of Unleashed are ticked ({ticked(view)})")
+                check(rows_show(view, act={2: ("Update", True), 1: ("Install", True)}), f"the rows say Update and Install ({act(view, 2)}, {act(view, 1)})")
+                check(rows_show(view, un={2: ("Uninstall", True), 1: ""}), "Uninstall only on the installed Unleashed")
                 press_row(view, V_ACT, 2)
                 check(run_done(view, 90), f"the row's Update runs ({notice_of(view)[:70]!r})")
                 check(setup_runs() == ["D2R-PCVR"] and not (game / "mods/D2R-VR").exists(), f"only Unleashed was updated, Authentic was not touched ({setup_runs()})")
-                check(wait_for(lambda: act(view, 2) == ("Up to date", False), 20) and act(view, 1) == ("Install", True), "Unleashed is up to date now; Authentic still says Install")
+                check(rows_show(view, act={2: ("Up to date", False), 1: ("Install", True)}), f"Unleashed is up to date now; Authentic still says Install ({act(view, 2)}, {act(view, 1)})")
         finally:
             app.close()
 
@@ -1123,8 +1143,8 @@ def part_2b_rows():
             check(setup_runs() == ["D2R-VR"] and not (game / "mods/D2R-PCVR").exists(), f"only Authentic's Setup ran, Unleashed was not touched ({setup_runs()})")
             check(all((game / n).read_bytes() == dd for n, dd in REAL.items()), "D2RLoader came with it")
             check("Done: 2 installed" in notice_of(view), f"the summary: {notice_of(view)!r}")
-            check(wait_for(lambda: act(view, 1) == ("Up to date", False) and act(view, 0) == ("Up to date", False), 20), f"Authentic and D2RLoader are up to date now ({act(view, 1)}, {act(view, 0)})")
-            check(act(view, 2) == ("Install", True) and unin(view, 1) == ("Uninstall", True) and unin(view, 2)[0] == "", "Unleashed still says Install; Authentic got an Uninstall button")
+            check(rows_show(view, act={1: ("Up to date", False), 0: ("Up to date", False)}), f"Authentic and D2RLoader are up to date now ({act(view, 1)}, {act(view, 0)})")
+            check(rows_show(view, act={2: ("Install", True)}, un={1: ("Uninstall", True), 2: ""}), f"Unleashed still says Install; Authentic got an Uninstall button ({act(view, 2)}, {unin(view, 1)}, {unin(view, 2)})")
             check(ticked(view)[1] is False, "nothing that is up to date is ticked")
     finally:
         app.close()
@@ -1136,13 +1156,13 @@ def part_2b_rows():
     SETUP_LOG.unlink(missing_ok=True)
     app, view = open_view(game, home, env_for(game))
     try:
-        check(view is not None and act(view, 0) == ("Install", True), f"missing: Install ({act(view, 0) if view else None})")
+        check(view is not None and rows_show(view, act={0: ("Install", True)}), f"missing: Install ({act(view, 0) if view else None})")
         if view:
-            check(unin(view, 0)[0] == "", "D2RLoader has no Uninstall button")
+            check(rows_show(view, un={0: ""}), "D2RLoader has no Uninstall button")
             press_row(view, V_ACT, 0)
             check(run_done(view, 60), "Install on D2RLoader's row runs")
             check(all((game / n).read_bytes() == dd for n, dd in REAL.items()) and not setup_runs() and not (game / "mods/D2R-VR").exists(), "only D2RLoader was installed, no mod's Setup ran")
-            check(wait_for(lambda: act(view, 0) == ("Up to date", False), 20), f"reviewed: a greyed Up to date ({act(view, 0)})")
+            check(rows_show(view, act={0: ("Up to date", False)}), f"reviewed: a greyed Up to date ({act(view, 0)})")
             check(not box_on(view, 0), "...and its box is off")
     finally:
         app.close()
@@ -1162,7 +1182,7 @@ def part_2b_rows():
             check(all((game / n).read_bytes() == dd for n, dd in REAL.items()) and not setup_runs(), "the reviewed files are back; no mod's Setup ran")
             backups = list((home / "backups").rglob("D2RLoader.exe"))
             check(len(backups) == 1 and backups[0].read_bytes() == own, f"the file it replaced was backed up first ({[str(b) for b in backups]})")
-            check(wait_for(lambda: act(view, 0) == ("Up to date", False), 20), "afterwards: a greyed Up to date")
+            check(rows_show(view, act={0: ("Up to date", False)}), "afterwards: a greyed Up to date")
     finally:
         app.close()
 
@@ -1182,7 +1202,7 @@ def part_2b_rows():
     try:
         check(view is not None, "the view opens over a game with both mods and both uninstallers")
         if view:
-            check(unin(view, 1) == ("Uninstall", True) and unin(view, 2) == ("Uninstall", True) and unin(view, 0)[0] == "", "Uninstall on the two mods, none on D2RLoader")
+            check(rows_show(view, un={1: ("Uninstall", True), 2: ("Uninstall", True), 0: ""}), "Uninstall on the two mods, none on D2RLoader")
             before = snap(game)
             press_row(view, V_UN, 2)
             d = app.wait_dialog()
@@ -1215,9 +1235,9 @@ def part_2b_rows():
             text = uninstall_log()
             check("uninstaller started args=0" in text and "uninstaller mod=D2R-PCVR" in text, f"...with no arguments (no /SILENT) ({text.strip().splitlines()[:3]})")
             check(not (game / "mods/D2R-PCVR").exists() and (game / "mods/D2R-VR").is_dir(), "...it removed Unleashed's folder and only that")
-            check(wait_for(lambda: act(view, 2) == ("Install", True) and unin(view, 2)[0] == "", 30), f"when it has ended the row changes by itself: Install, no Uninstall ({act(view, 2)}, {unin(view, 2)})")
+            check(rows_show(view, act={2: ("Install", True)}, un={2: ""}, timeout=30), f"when it has ended the row changes by itself: Install, no Uninstall ({act(view, 2)}, {unin(view, 2)})")
             check(wait_for(lambda: "D2R VR Unleashed was uninstalled" in notice_of(view), 10), f"the notice says so ({notice_of(view)[:70]!r})")
-            check(unin(view, 1) == ("Uninstall", True) and act(view, 1) == ("Up to date", False), "Authentic's row is as it was")
+            check(rows_show(view, act={1: ("Up to date", False)}, un={1: ("Uninstall", True)}), f"Authentic's row is as it was ({act(view, 1)}, {unin(view, 1)})")
             check(wait_for(lambda: ticked(view)[2], 10), f"the missing Unleashed is ticked again like any missing mod ({ticked(view)})")
     finally:
         app.close()
@@ -1236,7 +1256,7 @@ def part_2b_rows():
             check(wait_for(lambda: "Waiting for the uninstaller of D2R VR Unleashed" in notice_of(view), 10), "while its uninstaller runs the notice says so")
             check(not user32.IsWindowEnabled(dlg(view, V_INSTALL)) and not any(act(view, i)[1] or unin(view, i)[1] for i in range(3)), "...and no button of a row, nor Install selected, can be pressed")
             check(wait_for(lambda: "still installed" in notice_of(view), 20), f"it ended without removing anything: the row says it is still installed ({notice_of(view)[:80]!r})")
-            check((game / "mods/D2R-PCVR").is_dir() and unin(view, 2) == ("Uninstall", True), "...and the mod is still there, its Uninstall button is back")
+            check((game / "mods/D2R-PCVR").is_dir() and rows_show(view, un={2: ("Uninstall", True)}), "...and the mod is still there, its Uninstall button is back")
     finally:
         app.close()
 
@@ -1248,8 +1268,8 @@ def part_2b_rows():
     try:
         check(view is not None, "the view opens while the game runs")
         if view:
-            check(unin(view, 2) == ("Uninstall", True), "the Uninstall button is there (pressing it is what is refused)")
-            check(act(view, 1) == ("Up to date", False), "(and the rows' install buttons are off)")
+            check(rows_show(view, un={2: ("Uninstall", True)}), "the Uninstall button is there (pressing it is what is refused)")
+            check(rows_show(view, act={1: ("Up to date", False)}), "(and the rows' install buttons are off)")
             press_row(view, V_UN, 2)
             time.sleep(0.8)
             check(not app.dialogs() and "Save & Exit in the game first" in notice_of(view) and "does not close it" in notice_of(view), f"refused: no question, the notice says to Save & Exit in the game first ({notice_of(view)[:90]!r})")
@@ -1358,7 +1378,7 @@ def part_3_main_window():
         view = app.window(VIEW_CLASS)
         check(view is not None, "the Update button of the Unleashed card opens the install view")
         if view:
-            check(view_ready(view) and ticked(view) == [False, False, True], f"...with only that piece ticked ({ticked(view)})")
+            check(view_ready(view) and wait_for(lambda: ticked(view) == [False, False, True], 5), f"...with only that piece ticked ({ticked(view)})")
             press(dlg(view, V_CLOSE))
             check(wait_for(lambda: not app.window(VIEW_CLASS, 0.2), 5), "Close returns to the main window")
         press(dlg(main, M_INSTALL_VIEW))

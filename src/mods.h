@@ -72,6 +72,8 @@ struct ModEntry {
     std::string folder;                        // the D2RLoader mod name: "D2R-VR"
     std::string name;                          // "D2R VR Authentic"
     std::string description, version, publisher, homepage, support;     // `version`: the manifest's (the built-in profile's when the mod has none): what a launch plan carries, NOT proof of what is installed
+    // `support` (the card's link next to Website) and `install_help` (the player's install text): the mod's own manifest's, else the built-in profile's when it leaves them out
+    std::string install_help;
     // What is installed, as best the launcher can tell (the version every card, badge, update comparison and install row uses), "" = unknown. Found in this order for a known mod:
     //   1. "manifest"             the `version` of a vrmod-manifest.json that validates
     //   2. "manifest (not valid)" the `version` text of a vrmod-manifest.json that does NOT validate (an unknown field from another schema), read leniently; the note "is not valid" stays

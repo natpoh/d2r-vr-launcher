@@ -42,6 +42,15 @@ Read again at v0.3.19 (we first looked at v0.3.17), for this file:
   normal start, `-mod D2R-PCVR`, is unchanged. The launcher has no developer option (question 9);
 - there is still no `vrmod-manifest.json` in your repository.
 
+After your review of launcher 0.3.4 (in launcher 0.3.5):
+- `support` is your Discord, https://discord.gg/DmbFfJAnnm (it was your Setup's AppSupportURL, the issues page). The launcher shows it as a
+  **Discord** link next to **Website** on your card; a manifest that leaves `support` out gets the same link from the built-in profile;
+- your install text is the new optional key `install_help`. The launcher's built-in profile carries it, so players see it in the install view
+  (your row, while Unleashed is not installed) and in your card's tooltip already. This file leaves it out on purpose: launchers before 0.3.5
+  do not know the key and would call the file not valid. Add `"install_help": "..."` (schema and docs/MOD_MANIFEST.md of the launcher)
+  once the launcher your Setup carries is 0.3.5 or later; your own text then wins;
+- *System default* in the launcher now removes an inherited `XR_RUNTIME_JSON` from the game's environment, as you asked.
+
 ## What the launcher does at Play (D2R VR Unleashed)
 
 1. Refuses while `D2R.exe` or `D2RLoader.exe` runs, when `D2RLoader.exe` is missing, or when `mods\D2R-PCVR\D2R-PCVR.mpq\modinfo.json` is not there.

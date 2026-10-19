@@ -115,6 +115,52 @@ TEST(an_installed_mod_without_a_manifest_uses_the_builtin_profile) {
     CHECK(!Find(mods, "d2r-vr")->installed);
 }
 
+TEST(the_builtin_profiles_carry_the_support_links_and_unleashed_install_help) {
+    // bearstonem's review: his Discord on his card, our Discord on ours, and his words to players about installing D2R VR Unleashed
+    tt::Sandbox sb;
+    const std::vector<ModEntry> mods = DiscoverMods(sb.game);
+    const ModEntry* pcvr = Find(mods, "d2r-pcvr");
+    const ModEntry* vr = Find(mods, "d2r-vr");
+    REQUIRE(pcvr && vr);
+    CHECK_EQ(pcvr->support, std::string("https://discord.gg/DmbFfJAnnm"));
+    CHECK_EQ(vr->support, std::string("https://discord.gg/kVYjEdJx3e"));
+    // the whole text, its ';' included (CMake embeds the profile: file(READ) and configure_file keep it)
+    CHECK_EQ(pcvr->install_help, std::string(
+        "Install Unleashed through the shared launcher or download our Windows Setup from https://github.com/bearstonem/d2r-pcvr/releases. "
+        "Both use the same Setup wizard. Close D2R and fully exit Steam before installing. Choose Full install for a new setup, or Update / repair "
+        "to preserve existing settings and calibration. Setup handles the approved D2RLoader and ReShade versions automatically. Use offline "
+        "characters only; Battle.net support is still experimental. The portable ZIP is also available for manual installation."));
+    CHECK(vr->install_help.empty());
+}
+
+TEST(a_mods_own_manifest_wins_for_support_and_install_help_else_the_builtin_profile_fills_them) {
+    tt::Sandbox sb;
+    InstallMod(sb.game, "D2R-PCVR");
+    InstallMod(sb.game, "D2R-VR");
+    // his manifest as the kit proposes it: no install_help (launchers before 0.3.5 would call it not valid), its own support link
+    Json p = Json::Parse(ExampleText("d2r-pcvr"));
+    REQUIRE(p.is_object());
+    Json q = Json::Object();
+    for (const Json::Member& kv : p.members())
+        if (kv.first != "install_help" && kv.first != "support") q.set(kv.first, kv.second);
+    tt::Write(sb.game / "mods" / "D2R-PCVR" / "vrmod-manifest.json", q.dump());
+    // ours with values of its own
+    Json a = Json::Parse(ExampleText("d2r-vr"));
+    a.set("support", Json::String("https://example.invalid/help"));
+    a.set("install_help", Json::String("Run D2R_VR_Setup.exe."));
+    tt::Write(sb.game / "mods" / "D2R-VR" / "vrmod-manifest.json", a.dump());
+    const std::vector<ModEntry> mods = DiscoverMods(sb.game);
+    const ModEntry* pcvr = Find(mods, "d2r-pcvr");
+    const ModEntry* vr = Find(mods, "d2r-vr");
+    REQUIRE(pcvr && vr);
+    CHECK_EQ(pcvr->source, std::string("manifest"));
+    CHECK_EQ(pcvr->support, std::string("https://discord.gg/DmbFfJAnnm"));     // left out: the built-in profile's
+    CHECK(StartsWith(pcvr->install_help, "Install Unleashed through the shared launcher"));
+    CHECK_EQ(vr->source, std::string("manifest"));
+    CHECK_EQ(vr->support, std::string("https://example.invalid/help"));       // the manifest's own value wins
+    CHECK_EQ(vr->install_help, std::string("Run D2R_VR_Setup.exe."));
+}
+
 TEST(a_manifest_in_the_mod_folder_wins_and_its_icon_is_found) {
     tt::Sandbox sb;
     InstallMod(sb.game, "D2R-VR");
@@ -292,6 +338,33 @@ TEST(authentic_is_started_through_its_settings_program_and_a_missing_runtime_sto
     rec.fail = true;
     o = StartMod(req, sb.probe, rec, {}, roots);
     CHECK_EQ(o.code, std::string("E_IO"));
+}
+
+TEST(system_default_in_the_window_takes_an_inherited_runtime_out_of_the_game) {
+    // bearstonem's review: with "System default" chosen, an XR_RUNTIME_JSON in the launcher's own environment still reached the game
+    tt::Sandbox sb;
+    InstallMod(sb.game, "D2R-PCVR");
+    Recording rec;
+    RuntimeRoots roots;
+    roots.program_files = sb.root / "pf";
+    tt::Write(roots.program_files / "Virtual Desktop Streamer" / "OpenXR" / "virtualdesktop-openxr.json", "{}");
+    StartRequest req;
+    req.game = sb.game;
+    req.mod = *Find(DiscoverMods(sb.game), "d2r-pcvr");
+    const std::map<std::string, std::string> env = {{"PATH", "x"}, {"XR_RUNTIME_JSON", "C:\\inherited\\runtime.json"}};
+    req.runtime = "system";
+    StartOutcome o = StartMod(req, sb.probe, rec, env, roots);
+    CHECK(o.started);
+    REQUIRE(rec.envs.size() == 1);
+    CHECK(rec.envs[0].count("XR_RUNTIME_JSON") == 0);
+    CHECK_EQ(rec.envs[0].at("PATH"), std::string("x"));
+    CHECK_EQ(rec.envs[0].at("VRMOD_RUNTIME"), std::string("system"));
+    // another runtime choice still sets it (and the inherited value is gone)
+    req.runtime = "vdxr";
+    o = StartMod(req, sb.probe, rec, env, roots);
+    CHECK(o.started);
+    REQUIRE(rec.envs.size() == 2);
+    CHECK(rec.envs[1].at("XR_RUNTIME_JSON").find("virtualdesktop-openxr.json") != std::string::npos);
 }
 
 TEST(another_mods_reshade_folder_never_reaches_the_game_that_is_started) {

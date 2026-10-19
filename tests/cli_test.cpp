@@ -18,8 +18,10 @@ struct Run {
 
 struct RecordingBackend : LaunchBackend {
     std::vector<LaunchPlan> started;
-    bool Start(const LaunchPlan& p, const std::map<std::string, std::string>&, std::string*) override {
+    std::vector<std::map<std::string, std::string>> envs;   // what each child got
+    bool Start(const LaunchPlan& p, const std::map<std::string, std::string>& env, std::string*) override {
         started.push_back(p);
+        envs.push_back(env);
         return true;
     }
 };
@@ -183,6 +185,30 @@ TEST(launch_stops_when_the_game_was_never_started_unless_told_to_skip) {
     CHECK_EQ(r.code, 0);
     CHECK_EQ(w.backend.started.size(), size_t(2));
     CHECK(Has(tt::Read(w.sb.home / "logs" / "launcher.log"), settings + " is there"));
+}
+
+TEST(launch_with_the_system_runtime_takes_an_inherited_runtime_out_of_the_game) {
+    // bearstonem's review: `--runtime system` must not leave the launcher's own XR_RUNTIME_JSON in the game's environment
+    World w;
+    w.env.saved_games = w.sb.root / "Saved Games";
+    tt::Write(GameSettingsFile(w.env.saved_games), "{}");
+    tt::Write(w.sb.game / "mods" / "D2R-PCVR" / "D2R-PCVR.mpq" / "modinfo.json", "{ \"name\": \"D2R-PCVR\" }");
+    w.env.env["XR_RUNTIME_JSON"] = "C:\\inherited\\runtime.json";
+    Run r = w.Cli({"launch", "d2r-pcvr", "--runtime", "system", "--dry-run"});
+    CHECK_EQ(r.code, 0);
+    CHECK(Has(r.out, "env - XR_RUNTIME_JSON"));
+    r = w.Cli({"launch", "d2r-pcvr", "--runtime", "system"});
+    CHECK_EQ(r.code, 0);
+    REQUIRE(w.backend.envs.size() == 1);
+    CHECK(w.backend.envs[0].count("XR_RUNTIME_JSON") == 0);
+    CHECK_EQ(w.backend.envs[0].at("PATH"), std::string("x"));
+    // another runtime choice still sets it
+    const fs::path file = w.sb.root / "my-runtime.json";
+    tt::Write(file, "{}");
+    r = w.Cli({"launch", "d2r-pcvr", "--runtime", "file", "--runtime-file", U(file)});
+    CHECK_EQ(r.code, 0);
+    REQUIRE(w.backend.envs.size() == 2);
+    CHECK(Has(w.backend.envs[1].at("XR_RUNTIME_JSON"), "my-runtime.json"));
 }
 
 TEST(launch_activates_first_and_starts) {

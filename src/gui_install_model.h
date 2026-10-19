@@ -46,6 +46,7 @@ struct InstallRow {
     std::string badge;              // amber: "Update available: 0.167.0 -> 0.168.0"
     std::string source;             // "bodywalkvr.com - no checksum published yet"
     std::string how;                // "Its own Setup window opens; Windows asks for administrator rights."
+    std::string help;               // the mod author's install help (ModEntry::install_help), while the mod is not installed; "" otherwise (and always for D2RLoader)
     std::string note;               // why it is ticked, what is wrong with ticking it
     Tone note_tone = Tone::Normal;
     std::string state;              // the mark on the right during and after a run: "Waiting", "Downloading 12.3 of 47.0 MB", "Installed 0.168.0", "Failed"
@@ -86,6 +87,7 @@ public:
     // from DiscoverMods: the folder as it is now. `version` is ModEntry::found_version ("" = installed, version not known); `from` is ModEntry::found_from
     // ("manifest", "manifest (not valid)", "plugin"): the row says so when the version did not come from a valid manifest.
     void SetInstalled(Piece mod, bool installed, const std::string& version, const std::string& from = "");
+    void SetInstallHelp(Piece mod, const std::string& text);                 // ModEntry::install_help: what its row shows while the mod is not installed
     void SetChecking();                                                       // the question to both servers is out
     void SetUpdate(Piece mod, const UpdateInfo& u);                           // answered; u.checked false: it failed and u.error says why
     CheckState check_state(Piece mod) const { return row(mod).check; }
@@ -143,6 +145,7 @@ private:
         bool checked = false, touched = false;
         bool installed = false;
         std::string installed_version, installed_from;
+        std::string help;
         CheckState check = CheckState::NotAsked;
         UpdateInfo upd;
         std::string state;

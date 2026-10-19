@@ -179,6 +179,16 @@ private:
     Logger log_;
 };
 
+// The small links on a known mod's card, in this order: "Website" (`homepage`), then the mod's support place (`support`, the manifest's or else the
+// built-in profile's): "Discord" for a discord.gg / discord.com link, else "Support". Only http(s) links; none for another D2RLoader mod.
+struct CardLink {
+    std::string label, url;
+};
+std::vector<CardLink> CardLinks(const ModEntry& m);
+
+// What a card's tooltip adds for a known mod that is not installed: the mod's install help (its manifest's `install_help`, else the built-in profile's). "" otherwise.
+std::string CardInstallHelp(const ModEntry& m);
+
 // The question asked before a mod's own uninstaller is run (the cards' Uninstall button and the install view's row ask the same): it names the mod and the uninstaller.
 std::string UninstallQuestion(const ModEntry& m, const Model::UninstallOffer& o);
 

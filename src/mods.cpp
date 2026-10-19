@@ -90,6 +90,7 @@ void Fill(ModEntry& e, const Manifest& m, const fs::path& dir, const std::string
     e.publisher = m.publisher;
     e.homepage = m.homepage;
     e.support = m.support;
+    e.install_help = m.install_help;
     e.dir = dir;
     e.source = source;
     e.launchable = !m.launch.empty();
@@ -381,6 +382,9 @@ std::vector<ModEntry> DiscoverMods(const fs::path& game) {
             }
         }
         Fill(e, use, dir, source);
+        // a manifest's own value wins; one that leaves them out (written before the fields were in use) keeps the built-in profile's
+        if (e.support.empty()) e.support = b.support;
+        if (e.install_help.empty()) e.install_help = b.install_help;
         if (source != "manifest") {
             e.found_version = found;
             e.found_from = found_from;

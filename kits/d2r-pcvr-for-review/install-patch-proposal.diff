@@ -396,7 +396,7 @@ Apply with:  git apply install-patch-proposal.diff     (or: patch -p1 < install-
 +  "version": "0.3.19",
 +  "publisher": "bearstonem",
 +  "homepage": "https://github.com/bearstonem/d2r-pcvr",
-+  "support": "https://github.com/bearstonem/d2r-pcvr/issues",
++  "support": "https://discord.gg/DmbFfJAnnm",
 +  "license": "MIT",
 +  "description": "Diablo II reimagined for physical, immersive VR.",
 +  "d2rloader_mod": {

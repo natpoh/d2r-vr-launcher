@@ -91,6 +91,7 @@ struct ImportSpec {
 
 struct Manifest {
     std::string schema, id, name, version, edition, publisher, homepage, support, license, description;
+    std::string install_help;               // what the player is told about installing the mod (the install view, a card of a mod that is not installed); optional
     std::string group;                      // exclusive_group (swap mods only)
     std::string d2rloader_mod;              // the D2RLoader mod folder name ("D2R-VR"): set = a D2RLoader mod, started with -mod, nothing is swapped
     std::string icon;                       // a picture (PNG/ICO) next to the manifest, for the launcher's window

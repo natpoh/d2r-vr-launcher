@@ -90,6 +90,10 @@ void InstallModel::SetInstalled(Piece mod, bool installed, const std::string& ve
     Recompute();
 }
 
+void InstallModel::SetInstallHelp(Piece mod, const std::string& text) {
+    if (IsMod(mod)) row(mod).help = text;
+}
+
 void InstallModel::SetChecking() {
     for (Piece m : {Piece::Authentic, Piece::Unleashed}) {
         row(m).check = CheckState::Checking;
@@ -318,6 +322,7 @@ std::vector<InstallRow> InstallModel::Rows() const {
                 else r.source += ", SHA-256 from GitHub";
                 r.how = "Its own Setup opens in a window and installs for you only: no administrator prompt.";
             }
+            if (!d.installed) r.help = d.help;                // the author's words for a player who is about to install it
             // the row's own buttons
             if (game_ok_) {
                 if (d.check != CheckState::Done) {

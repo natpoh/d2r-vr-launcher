@@ -561,6 +561,25 @@ void Model::Log(const std::string& line) {
     }
 }
 
+// ------------------------------------------------------------------ what a card shows
+
+std::vector<CardLink> CardLinks(const ModEntry& m) {
+    // a link from a manifest is opened only when it is http(s): the manifest is a file in the mod's folder, not the launcher's own data
+    auto web = [](const std::string& u) { return StartsWith(Lower(u), "https://") || StartsWith(Lower(u), "http://"); };
+    std::vector<CardLink> v;
+    if (!m.known) return v;
+    if (web(m.homepage)) v.push_back({"Website", m.homepage});
+    if (web(m.support) && !IEquals(m.support, m.homepage)) {
+        const std::string u = Lower(m.support);
+        const size_t host = u.find("://") + 3;
+        const bool discord = u.compare(host, 11, "discord.gg/") == 0 || u.compare(host, 12, "discord.com/") == 0 || u.compare(host, 16, "www.discord.com/") == 0;
+        v.push_back({discord ? "Discord" : "Support", m.support});
+    }
+    return v;
+}
+
+std::string CardInstallHelp(const ModEntry& m) { return m.known && !m.installed ? m.install_help : std::string(); }
+
 // ------------------------------------------------------------------ text for the console and the log
 
 std::string UninstallQuestion(const ModEntry& m, const Model::UninstallOffer& o) {

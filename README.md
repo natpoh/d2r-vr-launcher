@@ -1,7 +1,7 @@
 # D2R VR Launcher
 
-**Download: [D2R_VR_Launcher_Setup_0.3.4.exe](https://github.com/natpoh/d2r-vr-launcher/raw/main/download/D2R_VR_Launcher_Setup_0.3.4.exe)** (Windows, 2.5 MB, per user, no admin prompt;
-SHA-256 `A0E4692DA980D99C0B53C32ED526B2D40DAC614724D9EDE2A9C12893280A9116`). Install it, pick a mod in the list and press **Play**: switching between the
+**Download: [D2R_VR_Launcher_Setup_0.3.5.exe](https://github.com/natpoh/d2r-vr-launcher/raw/main/download/D2R_VR_Launcher_Setup_0.3.5.exe)** (Windows, 2.5 MB, per user, no admin prompt;
+SHA-256 `817F28907A5F801B288616C47CB8B748E24563D11733FA1F4884629AF450DA34`). Install it, pick a mod in the list and press **Play**: switching between the
 VR mods is one click. The D2R VR Authentic installer also carries it.
 
 A launcher for the two Diablo II: Resurrected VR mods — **D2R VR Authentic** (natpoh) and **D2R VR Unleashed** (bearstonem's d2r-pcvr) —
@@ -55,6 +55,13 @@ Nothing here touches a real game folder unless you point `--game` at one; a star
 started before that dies at the logo screen. So Play (any mod, any runtime) and `vrmodlauncher launch` first look for that file (the folder from Windows, `FOLDERID_SavedGames`;
 Steam and Battle.net alike) and, when it is missing, start nothing: the window says "Start it once without mods (from Steam or Battle.net), create a character, quit, then press Play
 again" with OK and **Start anyway**; the command line fails with `E_FIRST_START` (exit 32) unless `--skip-first-start-check` is given. `launcher.log` gets one line with the path checked.
+
+**After bearstonem's review (0.3.5).** *System default* now means the runtime Windows has set: an `XR_RUNTIME_JSON` inherited from the launcher's own environment (setx, a wrapper)
+is taken out of the game's environment (`env - XR_RUNTIME_JSON` in the plan; the window and `vrmodlauncher launch --runtime system` alike), and any other runtime choice still sets it.
+Each known mod's card has its support link next to **Website** - **Discord** for both (Authentic https://discord.gg/kVYjEdJx3e, Unleashed https://discord.gg/DmbFfJAnnm), from the
+manifest's `support`, else the built-in profile's. A mod's install help - the new optional manifest key `install_help`, else the built-in profile's (Unleashed carries bearstonem's text) - is
+shown in its install-view row and its card's tooltip while it is not installed. `tools/install_view_smoke.py` now waits for each row's own result with its own timeout (`rows_show`)
+instead of reading one row right after waiting for another.
 
 ## The window: `D2RVRLauncher.exe`
 

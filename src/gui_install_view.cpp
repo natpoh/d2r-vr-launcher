@@ -81,6 +81,7 @@ constexpr int kDefaultClientW = 720;
 constexpr int kDefaultClientH = 700;
 constexpr int kRowButtonW = 108;       // each row's own buttons (Install / Update / Repair / Up to date and Uninstall), on the right of its card
 constexpr int kLogMinH = 56;
+constexpr int kHelpRoomH = 84;         // the window is this much taller when a mod that is not installed has install help to show (its row grows by the text)
 
 enum : int {
     IDC_V_ROWS = 210, IDC_V_NOTICE, IDC_V_STEP, IDC_V_PROGRESS, IDC_V_LOG, IDC_V_CHECK, IDC_V_INSTALL,
@@ -226,7 +227,7 @@ DWORD WINAPI RunThread(LPVOID p) {
 // ------------------------------------------------------------------ the view
 
 struct RowGeo {
-    RECT card{}, check{}, state{}, installed{}, latest{}, source{}, how{}, note{}, action{}, uninstall{};
+    RECT card{}, check{}, state{}, installed{}, latest{}, source{}, how{}, note{}, help{}, action{}, uninstall{};
 };
 
 class View {
@@ -320,6 +321,7 @@ private:
     std::vector<InstallRow> rows_;
     RowGeo geo_[kPieceCount];
     int rows_h_ = 0;
+    bool help_room_ = false;              // a row shows its mod's install help when the view opens: the window starts (and stays at least) kHelpRoomH taller
     bool in_rows_paint_ = false, laying_out_ = false;
 
     unsigned check_gen_ = 0;
@@ -369,7 +371,12 @@ InstallViewResult View::Run() {
     }
     const int dpi0 = opt_.dpi ? opt_.dpi : static_cast<int>(owner_ ? GetDpiForWindow(owner_) : GetDpiForSystem());
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
-    RECT want{0, 0, MulDiv(kDefaultClientW, dpi0, 96), MulDiv(kDefaultClientH, dpi0, 96)};
+    for (const ModEntry& m : model_.mods()) {
+        Piece p;
+        if (PieceOfModId(m.id, &p) && !m.installed && !m.install_help.empty()) help_room_ = true;
+    }
+    const int help_h = help_room_ ? kHelpRoomH : 0;
+    RECT want{0, 0, MulDiv(kDefaultClientW, dpi0, 96), MulDiv(kDefaultClientH + help_h, dpi0, 96)};
     AdjustWindowRectExForDpi(&want, style, FALSE, 0, static_cast<UINT>(dpi0));
     HMONITOR mon = owner_ ? MonitorFromWindow(owner_, MONITOR_DEFAULTTOPRIMARY) : MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO mi{sizeof mi};
@@ -423,7 +430,10 @@ bool View::Init() {
     mods_ = model_.mods();
     for (const ModEntry& m : mods_) {
         Piece p;
-        if (PieceOfModId(m.id, &p)) inst_model_.SetInstalled(p, m.installed, m.found_version, m.found_from);
+        if (PieceOfModId(m.id, &p)) {
+            inst_model_.SetInstalled(p, m.installed, m.found_version, m.found_from);
+            inst_model_.SetInstallHelp(p, m.install_help);
+        }
     }
     inst_model_.SetGameRunning(model_.GameRunning());
     if (explicit_tick_) inst_model_.TickOnly(tick_);
@@ -632,7 +642,7 @@ int View::MeasureStatic(HWND h, int width) const {
 }
 
 // The cards' geometry for a panel `width` px wide, in the panel's own coordinates; returns the panel's height. Every card is as tall as the others and
-// keeps a line for its note, so the window does not jump when a note comes and goes.
+// keeps a line for its note, so the window does not jump when a note comes and goes; a card that shows its mod's install help is taller by that text.
 int View::ComputeRows(int width) {
     const int pad = S(10), gap = S(8);
     const int title_h = S(22);
@@ -649,7 +659,19 @@ int View::ComputeRows(int width) {
     int y = 0;
     for (int i = 0; i < kPieceCount; ++i) {
         RowGeo& g = geo_[i];
-        g.card = RECT{0, y, width, y + card_h};
+        // the install help: the whole text, wrapped, under the note
+        int help_h = 0;
+        const std::wstring help = rows_.size() == static_cast<size_t>(kPieceCount) ? W(rows_[static_cast<size_t>(i)].help) : std::wstring();
+        if (!help.empty()) {
+            HDC dc = GetDC(rows_wnd_);
+            HGDIOBJ old = SelectObject(dc, fonts_.fine);
+            RECT r{0, 0, std::max(width - pad - text_l, S(80)), 0};
+            DrawTextW(dc, help.c_str(), -1, &r, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_EDITCONTROL);
+            SelectObject(dc, old);
+            ReleaseDC(rows_wnd_, dc);
+            help_h = r.bottom;
+        }
+        g.card = RECT{0, y, width, y + card_h + (help_h ? S(4) + help_h : 0)};
         g.check = RECT{pad, y + pad, width - pad - mark_w - S(8), y + pad + title_h};
         g.state = RECT{width - pad - mark_w, y + pad, width - pad, y + pad + title_h};
         int ly = y + pad + title_h + S(3);
@@ -663,12 +685,14 @@ int View::ComputeRows(int width) {
         g.how = RECT{text_l, ly, text_r, ly + fine};
         ly += fine + S(2);
         g.note = RECT{text_l, ly, width - pad, ly + fine};
+        ly += fine + S(4);
+        g.help = RECT{text_l, ly, width - pad, ly + help_h};
         // the buttons: the action on top, Uninstall under it; a row with only an action button has it in the middle of the column
         const bool has_unins = rows_.size() == static_cast<size_t>(kPieceCount) && !rows_[static_cast<size_t>(i)].uninstall.empty();
         const int top = has_unins ? col_top : col_top + (col_h - btn_h) / 2;
         g.action = RECT{width - pad - btn_w, top, width - pad, top + btn_h};
         g.uninstall = RECT{width - pad - btn_w, col_top + btn_h + btn_gap, width - pad, col_top + btn_h + btn_gap + btn_h};
-        y += card_h + gap;
+        y = g.card.bottom + gap;
     }
     return y - gap;
 }
@@ -797,6 +821,13 @@ void View::PaintRow(HDC dc, size_t i, int dx, int dy, bool foreground) {
     text(W(r.source), fonts_.fine, kMuted, off(g.source), DT_LEFT);
     text(W(r.how), fonts_.fine, kMuted, off(g.how), DT_LEFT);
     text(W(r.note), fonts_.fine, ToneColor(r.note_tone, kMuted), off(g.note), DT_LEFT);
+    if (!r.help.empty()) {
+        // the mod author's own words about installing it, in full (several lines)
+        RECT hr = off(g.help);
+        SelectObject(dc, fonts_.fine);
+        SetTextColor(dc, kText);
+        DrawTextW(dc, W(r.help).c_str(), -1, &hr, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX | DT_EDITCONTROL);
+    }
 }
 
 void View::PaintRows(HDC dc, int dx, int dy, bool foreground) {
@@ -831,7 +862,10 @@ void View::OnFacts(FactsMsg* raw) {
     mods_ = m->mods;
     for (const ModEntry& e : mods_) {
         Piece p;
-        if (PieceOfModId(e.id, &p)) inst_model_.SetInstalled(p, e.installed, e.found_version, e.found_from);
+        if (PieceOfModId(e.id, &p)) {
+            inst_model_.SetInstalled(p, e.installed, e.found_version, e.found_from);
+            inst_model_.SetInstallHelp(p, e.install_help);
+        }
     }
     for (const std::string& n : m->loader.notes) AppendLog("D2RLoader: " + n);
     if (await_uninstall_facts_) {
@@ -1128,7 +1162,7 @@ LRESULT View::OnView(UINT m, WPARAM w, LPARAM l) {
 
         case WM_GETMINMAXINFO: {
             auto* mmi = reinterpret_cast<MINMAXINFO*>(l);
-            RECT r{0, 0, S(kMinClientW), S(kMinClientH)};
+            RECT r{0, 0, S(kMinClientW), S(kMinClientH + (help_room_ ? kHelpRoomH : 0))};
             AdjustWindowRectExForDpi(&r, static_cast<DWORD>(GetWindowLongPtrW(hwnd_, GWL_STYLE)), FALSE, 0, static_cast<UINT>(dpi_));
             mmi->ptMinTrackSize.x = r.right - r.left;
             mmi->ptMinTrackSize.y = r.bottom - r.top;
