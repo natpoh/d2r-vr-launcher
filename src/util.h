@@ -25,7 +25,7 @@ struct Error : std::runtime_error {
 //   E_SETUP[28] (a mod's Setup ended with an error) E_UNTRUSTED[29] (an address or an answer from a server the launcher does not trust) E_CANCELLED[30] (the player or the caller stopped a download) E_UAC_DECLINED[31]
 [[noreturn]] void Throw(const std::string& code, const std::string& msg);
 
-constexpr const char* kLauncherVersion = "0.3.2";   // the window's version resource is read from this line (CMakeLists.txt)
+constexpr const char* kLauncherVersion = "0.3.3";   // the window's version resource is read from this line (CMakeLists.txt)
 constexpr const char* kManifestSchema = "vrmod-manifest/1";
 
 // ---- strings and paths (all paths in files are UTF-8 with '/')

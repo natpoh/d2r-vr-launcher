@@ -16,7 +16,7 @@
 AppId={{B1E3C7A4-5D2F-4E8B-9A60-3C71F2D84E15}
 AppName=D2R VR Launcher
 AppVersion={#LauncherVersion}
-AppPublisher=BodyWalkVR
+AppPublisher=natpoh
 AppPublisherURL=https://github.com/natpoh/d2r-vr-launcher
 AppSupportURL=https://github.com/natpoh/d2r-vr-launcher/issues
 DefaultDirName={localappdata}\Programs\D2R VR Launcher

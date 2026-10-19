@@ -1,10 +1,10 @@
 # D2R VR Launcher
 
-**Download: [D2R_VR_Launcher_Setup_0.3.2.exe](https://github.com/natpoh/d2r-vr-launcher/raw/main/download/D2R_VR_Launcher_Setup_0.3.2.exe)** (Windows, 2.5 MB, per user, no admin prompt;
-SHA-256 `F5412C8BCE7152005D8964ADF43F2847494B70261D4F83EE47CD26598B19DA9A`). Install it, pick a mod in the list and press **Play**: switching between the
+**Download: [D2R_VR_Launcher_Setup_0.3.3.exe](https://github.com/natpoh/d2r-vr-launcher/raw/main/download/D2R_VR_Launcher_Setup_0.3.3.exe)** (Windows, 2.5 MB, per user, no admin prompt;
+SHA-256 `6F582A6A927634E706CA63FF0EDCEDF05F32641E1CC90B100C6DB74BA11FC5DC`). Install it, pick a mod in the list and press **Play**: switching between the
 VR mods is one click. The D2R VR Authentic installer also carries it.
 
-A launcher for the two Diablo II: Resurrected VR mods — **D2R VR Authentic** (BodyWalkVR) and **D2R VR Unleashed** (bearstonem's d2r-pcvr) —
+A launcher for the two Diablo II: Resurrected VR mods — **D2R VR Authentic** (natpoh) and **D2R VR Unleashed** (bearstonem's d2r-pcvr) —
 and any other D2RLoader mod. Both VR mods are **D2RLoader mods** (`<game>\mods\D2R-VR`, `<game>\mods\D2R-PCVR`): D2RLoader starts one mod per game start
 (`D2RLoader.exe -mod <name>`), so **choosing the mod is the whole switch and the launcher moves no files**. It finds the game (Steam, Battle.net, or the folder you
 pick), checks D2RLoader, lists the mods installed in that game, and starts the one you choose with the OpenXR runtime you choose for that start (the system's setting is never changed).
