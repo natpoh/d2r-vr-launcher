@@ -9,6 +9,7 @@ IDI_APP ICON "../assets/launcher_icon.ico"
 
 IDB_LOGO PNG "../assets/launcher_icon_256.png"
 IDB_AUTHENTIC PNG "../assets/authentic_crystal_icon_128.png"
+IDB_UNLEASHED PNG "../assets/unleashed_icon_128.png"
 
 // the application manifest: common controls 6, per-monitor DPI v2, UTF-8, no elevation (the linker's own manifest is switched off)
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "launcher.manifest"

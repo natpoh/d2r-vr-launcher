@@ -319,6 +319,7 @@ private:
 
     Gdiplus::Bitmap* logo_ = nullptr;
     Gdiplus::Bitmap* authentic_icon_ = nullptr;
+    Gdiplus::Bitmap* unleashed_icon_ = nullptr;   // bearstonem's icon, for D2R VR Unleashed without its own picture file
 
     std::vector<Card> cards_;
     RECT others_heading_{};            // "Other D2RLoader mods", content coordinates; empty when there are none
@@ -353,6 +354,7 @@ Window::~Window() {
         if (c.owns_picture) delete c.picture;
     delete logo_;
     delete authentic_icon_;
+    delete unleashed_icon_;
 }
 
 // ------------------------------------------------------------------ start
@@ -521,6 +523,7 @@ void Window::ApplyFonts() {
 void Window::LoadPictures() {
     logo_ = LoadResourcePng(IDB_LOGO);
     authentic_icon_ = LoadResourcePng(IDB_AUTHENTIC);
+    unleashed_icon_ = LoadResourcePng(IDB_UNLEASHED);
 }
 
 HWND Window::Static(int id, const wchar_t* text, DWORD style) {
@@ -738,6 +741,8 @@ void Window::RebuildCards() {
             c.picture = LoadPictureFile(m.icon);
             c.owns_picture = c.picture != nullptr;
         }
+        // D2R VR Unleashed: its own picture when its manifest names one that loads, else bearstonem's icon built in
+        if (!c.picture && m.id == "d2r-pcvr" && unleashed_icon_) c.picture = unleashed_icon_;
         // the letter: the word that tells D2R VR Authentic from D2R VR Unleashed, else the first letter of the name
         std::wstring base = c.name;
         if (base.rfind(L"D2R VR ", 0) == 0 && base.size() > 7) base = base.substr(7);

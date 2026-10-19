@@ -4,3 +4,4 @@
 #define IDI_APP         1      // the application, window and taskbar icon (launcher_icon.ico)
 #define IDB_LOGO        101    // PNG: the header logo = the launcher icon (launcher_icon_256.png)
 #define IDB_AUTHENTIC   102    // PNG: D2R VR Authentic's card icon (authentic_crystal_icon_128.png)
+#define IDB_UNLEASHED   103    // PNG: D2R VR Unleashed's card icon (unleashed_icon_128.png, bearstonem's launcher_icon.png at 128 px)
