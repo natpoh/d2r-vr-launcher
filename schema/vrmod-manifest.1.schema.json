@@ -18,6 +18,7 @@
     "support": { "type": "string" },
     "license": { "type": "string" },
     "description": { "type": "string" },
+    "install_help": { "type": "string", "description": "Optional (launcher 0.3.5 and later): the mod author's own words to the player about installing the mod, shown wherever the launcher shows install help for it (its row in the install view, the card of a mod that is not installed). Plain text, no markup. Launchers before 0.3.5 report a manifest with it as not valid." },
     "build": {
       "type": "object",
       "additionalProperties": false,

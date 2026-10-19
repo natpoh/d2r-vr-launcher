@@ -17,6 +17,8 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+extern char** environ;   // at global scope: declared inside the namespace it names vrml::environ, which nothing defines
 #endif
 
 namespace vrml {
@@ -35,7 +37,6 @@ std::map<std::string, std::string> CurrentEnvironment() {
         FreeEnvironmentStringsW(block);
     }
 #else
-    extern char** environ;
     for (char** e = environ; e && *e; ++e) {
         std::string kv(*e);
         size_t eq = kv.find('=');

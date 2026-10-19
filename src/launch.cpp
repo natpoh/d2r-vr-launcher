@@ -150,6 +150,11 @@ LaunchPlan BuildLaunchPlan(const Manifest& m, const std::string& optionId, const
     } else if (rt == "file") {
         if (!IsFile(ctx.runtime_file)) Throw("E_RUNTIME", "the OpenXR runtime manifest was not found: " + U(ctx.runtime_file));
         p.env_set["XR_RUNTIME_JSON"] = U(ctx.runtime_file);
+    } else if (rt == "system") {
+        // "System default" means the runtime Windows has set. An XR_RUNTIME_JSON inherited from the player's environment (setx, a wrapper, an earlier
+        // start) would quietly override it, so the game started with this choice never gets one - what the window shows is what the game uses.
+        p.env_set.erase("XR_RUNTIME_JSON");
+        p.env_unset.push_back("XR_RUNTIME_JSON");
     }
     // for the mods' own logs and for support: who was started, in what
     p.env_set["VRMOD_ACTIVE_ID"] = m.id;

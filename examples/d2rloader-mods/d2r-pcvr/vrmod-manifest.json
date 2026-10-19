@@ -5,9 +5,10 @@
   "version": "0.3.19",
   "publisher": "bearstonem",
   "homepage": "https://github.com/bearstonem/d2r-pcvr",
-  "support": "https://github.com/bearstonem/d2r-pcvr/issues",
+  "support": "https://discord.gg/DmbFfJAnnm",
   "license": "MIT",
   "description": "Diablo II reimagined for physical, immersive VR.",
+  "install_help": "Install Unleashed through the shared launcher or download our Windows Setup from https://github.com/bearstonem/d2r-pcvr/releases. Both use the same Setup wizard. Close D2R and fully exit Steam before installing. Choose Full install for a new setup, or Update / repair to preserve existing settings and calibration. Setup handles the approved D2RLoader and ReShade versions automatically. Use offline characters only; Battle.net support is still experimental. The portable ZIP is also available for manual installation.",
   "d2rloader_mod": {
     "name": "D2R-PCVR"
   },

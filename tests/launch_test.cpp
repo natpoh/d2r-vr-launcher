@@ -1,4 +1,6 @@
 // The launch plan: option, store, the OpenXR runtime of this start, the environment rules, "via".
+#include <algorithm>
+
 #include "launch.h"
 #include "sandbox.h"
 #include "test.h"
@@ -65,6 +67,35 @@ TEST(the_runtime_is_chosen_for_this_start_only) {
     // no default given: the option's first
     w.ctx.runtime = "";
     CHECK_EQ(BuildLaunchPlan(m, "", w.ctx).runtime, std::string("steamvr"));
+}
+
+TEST(system_default_removes_an_inherited_runtime_and_another_choice_still_sets_it) {
+    // bearstonem's review: an XR_RUNTIME_JSON inherited from the player's environment stayed in place although the window showed "System default"
+    World w;
+    w.InstallVdxr();
+    Manifest m;
+    std::vector<Issue> issues;
+    REQUIRE(LoadManifest(fs::path(VRML_SOURCE_DIR) / "examples" / "d2rloader-mods" / "d2r-pcvr" / "vrmod-manifest.json", &m, &issues));
+    const std::map<std::string, std::string> base = {{"PATH", "x"}, {"xr_runtime_json", "C:\\old\\other-runtime.json"}};
+    w.ctx.runtime = "system";
+    LaunchPlan s = BuildLaunchPlan(m, "", w.ctx);
+    CHECK(!s.env_set.count("XR_RUNTIME_JSON"));
+    CHECK(std::find(s.env_unset.begin(), s.env_unset.end(), std::string("XR_RUNTIME_JSON")) != s.env_unset.end());
+    CHECK(s.Describe().find("env - XR_RUNTIME_JSON") != std::string::npos);
+    auto env = ApplyEnv(base, s);
+    CHECK(!env.count("xr_runtime_json"));                                   // names compare case-insensitively, as on Windows
+    CHECK(!env.count("XR_RUNTIME_JSON"));
+    CHECK_EQ(env.at("PATH"), std::string("x"));
+    // the option's first runtime is "system" too: no choice made is the same as choosing it
+    w.ctx.runtime = "";
+    CHECK(!ApplyEnv(base, BuildLaunchPlan(m, "", w.ctx)).count("xr_runtime_json"));
+    // any other choice still sets it, replacing the inherited one
+    w.ctx.runtime = "vdxr";
+    auto v = ApplyEnv(base, BuildLaunchPlan(m, "", w.ctx));
+    CHECK(!v.count("xr_runtime_json"));
+    CHECK(v.at("XR_RUNTIME_JSON").find("virtualdesktop-openxr.json") != std::string::npos);
+    w.ctx.runtime = "steamvr";
+    CHECK(ApplyEnv(base, BuildLaunchPlan(m, "", w.ctx)).at("XR_RUNTIME_JSON").find("steamxr_win64.json") != std::string::npos);
 }
 
 TEST(a_missing_runtime_stops_the_launch) {

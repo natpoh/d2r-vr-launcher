@@ -8,7 +8,8 @@ VRML_MANIFEST_TEST; else a build*/ folder next to this one is searched) is the l
 Without a clone the test prints SKIPPED and passes; --require-all turns every skip into a failure.
 
 It checks, at the commit the committed example says it was made from (x-source.commit):
-  1. tools/make_pcvr_vrmod_manifest.py writes exactly examples/d2rloader-mods/d2r-pcvr/vrmod-manifest.json and exactly the kit's copy;
+  1. tools/make_pcvr_vrmod_manifest.py writes exactly examples/d2rloader-mods/d2r-pcvr/vrmod-manifest.json and, with --for-kit, exactly the kit's
+     copy (the same without install_help, which launchers before 0.3.5 do not know);
   2. that file passes the JSON Schema (tools/check_schema.py's validator) and `manifest_test --validate`;
   3. the values in it are the ones in his files (read here again, with other, simpler patterns than the generator's);
   4. the generator STOPS when a file of his stops saying what it expects (changed copies of his texts, in memory);
@@ -85,7 +86,14 @@ def test_the_generator_writes_the_committed_example_and_the_kit_copy(c):
     assert r.returncode == 0, r.stderr
     got = read(out)
     assert got == read(EXAMPLE), "examples/d2rloader-mods/d2r-pcvr/vrmod-manifest.json is not what the generator makes: run it again"
-    assert got == read(KIT / "vrmod-manifest.json"), "the kit's vrmod-manifest.json is not the example"
+    kit = c.tmp / "generated-kit.json"
+    r = subprocess.run([sys.executable, str(TOOLS / "make_pcvr_vrmod_manifest.py"), "--repo", str(c.clone), "--ref", c.commit, "--out", str(kit), "--for-kit"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert read(kit) == read(KIT / "vrmod-manifest.json"), "the kit's vrmod-manifest.json is not what the generator makes with --for-kit: run it again"
+    builtin, proposed = json.loads(got), json.loads(read(kit))
+    assert "install_help" not in proposed and builtin.pop("install_help")
+    assert builtin == proposed, "the kit's copy differs from the built-in profile in more than install_help"
 
 
 def test_the_manifest_passes_the_schema_and_the_cpp_validator(c):
@@ -112,7 +120,10 @@ def test_the_values_are_the_ones_in_his_files(c):
     iss = shown(c, "installer/D2R_PCVR_Setup.iss")
     assert m["version"] == re.search(r'ModVersion "([^"]+)"', iss).group(1)
     assert m["homepage"] == re.search(r"^AppPublisherURL=(\S+)", iss, re.M).group(1)
-    assert m["support"] == re.search(r"^AppSupportURL=(\S+)", iss, re.M).group(1)
+    assert re.search(r"^AppSupportURL=(\S+)", iss, re.M)
+    gen = load(TOOLS / "make_pcvr_vrmod_manifest.py", "make_pcvr_vrmod_manifest")
+    assert m["support"] == gen.SUPPORT == "https://discord.gg/DmbFfJAnnm"            # his Discord, from his review (not in his files yet)
+    assert m["install_help"] == gen.INSTALL_HELP and m["install_help"].startswith("Install Unleashed through the shared launcher")
     assert m["update"] == {"kind": "github-release", "repo": "bearstonem/d2r-pcvr", "tag": "v*-windows-preview"}
     assert m["uninstall"]["exe"] == "{localappdata}/Programs/D2R PCVR/unins000.exe" and "args" not in m["uninstall"]
     assert re.search(r"^DefaultDirName=\{localappdata\}\\Programs\\D2R PCVR$", iss, re.M) and "PrivilegesRequired=lowest" in iss
@@ -148,7 +159,8 @@ def test_the_values_are_the_ones_in_his_files(c):
     assert "developer mode" in m["x-unverified"] and re.search(r"^MOD = '(pcvr-dev)'", dev, re.M).group(1) in m["x-unverified"]["developer mode"]
     assert "--frame-dev" in launch and m["launch"]["options"][0]["args"] == ["-mod", mod], "the launcher's start is the normal one, never the developer mod"
     text = read(EXAMPLE)
-    assert ";" not in text and "@" not in text, "CMake embeds this file as the built-in profile (src/builtin_mods.h.in)"
+    # configure_file @ONLY would take @...@ apart; a ';' passes through (his install text has one, tests/mods_test.cpp reads it back from the built-in profile)
+    assert "@" not in text, "CMake embeds this file as the built-in profile (src/builtin_mods.h.in)"
     assert len(text.encode("utf-8")) < 16000, "a C++ string literal of the built-in profile must stay under MSVC's 16380 bytes"
 
 

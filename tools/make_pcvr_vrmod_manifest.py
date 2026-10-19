@@ -2,9 +2,10 @@
 """The launcher manifest of bearstonem's D2R VR Unleashed (d2r-pcvr), made from HIS files.
 
     make_pcvr_vrmod_manifest.py --repo <clone of github.com/bearstonem/d2r-pcvr> [--ref origin/main]
-                                [--out FILE | --out -] [--icon launcher_icon.png]
+                                [--out FILE | --out -] [--icon launcher_icon.png] [--for-kit]
 
-Writes examples/d2rloader-mods/d2r-pcvr/vrmod-manifest.json (the launcher's built-in profile and the file proposed for his installer).
+Writes examples/d2rloader-mods/d2r-pcvr/vrmod-manifest.json (the launcher's built-in profile). --for-kit writes the file proposed for his installer
+(kits/d2r-pcvr-for-review/vrmod-manifest.json): the same without `install_help`, which launchers before 0.3.5 do not know.
 
 Nothing of his is run or imported and the clone is never changed: every file is read with `git show <ref>:<path>` and taken apart
 with regular expressions. Each fact is looked for in the exact shape it has today; when a file no longer says it that way the script
@@ -22,6 +23,8 @@ What comes from where
   steamvr/install.py            the two accepted D2RLoader archive hashes, the archive URL, the processes that must be closed
   steamvr/evidence/...repack    the three D2RLoader file hashes (his own evidence file)
   docs/*.md, installer/README   log file names, the release tag pattern, the license name
+  his review of the launcher    `support` (his Discord, in place of the Setup's AppSupportURL) and `install_help` (his words to players),
+                                kept below as SUPPORT and INSTALL_HELP: they are in none of his files yet
 The result is checked against schema/vrmod-manifest.1.schema.json (the draft-07 subset validator of tools/check_schema.py).
 """
 import argparse
@@ -33,6 +36,13 @@ import sys
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
+# From bearstonem's review of the launcher (0.3.4): the link on his card and the install text he wants players to read.
+SUPPORT = "https://discord.gg/DmbFfJAnnm"
+INSTALL_HELP = ("Install Unleashed through the shared launcher or download our Windows Setup from https://github.com/bearstonem/d2r-pcvr/releases. "
+                "Both use the same Setup wizard. Close D2R and fully exit Steam before installing. Choose Full install for a new setup, "
+                "or Update / repair to preserve existing settings and calibration. Setup handles the approved D2RLoader and ReShade versions "
+                "automatically. Use offline characters only; Battle.net support is still experimental. The portable ZIP is also available "
+                "for manual installation.")
 LAUNCHER = TOOLS.parent
 DEFAULT_OUT = LAUNCHER / "examples" / "d2rloader-mods" / "d2r-pcvr" / "vrmod-manifest.json"
 SCHEMA = LAUNCHER / "schema" / "vrmod-manifest.1.schema.json"
@@ -223,17 +233,18 @@ def facts_docs(t, identity, header):
 
 # ------------------------------------------------------------------ the manifest
 
-def build(repo, ref, icon):
+def build(repo, ref, icon, for_kit=False):
     commit = git(repo, "rev-parse", "--verify", ref + "^{commit}").strip()
 
     def tag_exists(tag):
         return subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
                               capture_output=True).returncode == 0
-    return assemble(read_files(repo, ref), commit, tag_exists, icon)
+    return assemble(read_files(repo, ref), commit, tag_exists, icon, for_kit)
 
 
-def assemble(t, commit, tag_exists, icon):
-    """The manifest from the texts of his files `t` (see FILES); tag_exists(name) says whether his repo has that release tag."""
+def assemble(t, commit, tag_exists, icon, for_kit=False):
+    """The manifest from the texts of his files `t` (see FILES); tag_exists(name) says whether his repo has that release tag.
+    for_kit: the copy for his installer, without `install_help` (launchers before 0.3.5 would call the manifest not valid)."""
     ident = facts_identity(t)
     head = facts_header(t)
     iss = facts_installer(t)
@@ -302,10 +313,12 @@ def assemble(t, commit, tag_exists, icon):
         "version": version,
         "publisher": head["AUTHOR"],
         "homepage": iss["homepage"],
-        "support": iss["support"],
+        "support": SUPPORT,
         "license": docs["license"],
         "description": ident["TAGLINE"] + ".",
     }
+    if not for_kit:
+        manifest["install_help"] = INSTALL_HELP
     if icon:
         manifest["icon"] = icon
     manifest.update({
@@ -414,9 +427,10 @@ def check_schema(manifest):
 
 def render(manifest):
     text = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
-    # CMake embeds this file as the launcher's built-in profile of the mod (src/builtin_mods.h.in): no ';' or '@' in its text
-    if ";" in text or "@" in text:
-        raise Drift("the manifest text holds a ';' or an '@' (CMake embeds this file as the built-in profile): reword the text that has it")
+    # CMake embeds this file as the launcher's built-in profile of the mod (src/builtin_mods.h.in, configure_file @ONLY): no '@' in its text.
+    # A ';' is kept as it is by file(READ) and configure_file (his install text has one; tests/mods_test.cpp reads it back from the built-in profile).
+    if "@" in text:
+        raise Drift("the manifest text holds an '@' (CMake embeds this file as the built-in profile): reword the text that has it")
     return text
 
 
@@ -426,9 +440,10 @@ def main(argv):
     ap.add_argument("--ref", default="origin/main", help="branch, tag or commit to read (default origin/main)")
     ap.add_argument("--out", default=str(DEFAULT_OUT), help="where to write ('-' = stdout)")
     ap.add_argument("--icon", default="", help="name of a picture his installer puts next to the manifest (none by default: there is none)")
+    ap.add_argument("--for-kit", action="store_true", help="the copy for his installer (kits/d2r-pcvr-for-review): without install_help")
     args = ap.parse_args(argv)
     try:
-        manifest = build(args.repo, args.ref, args.icon)
+        manifest = build(args.repo, args.ref, args.icon, args.for_kit)
         check_schema(manifest)
         text = render(manifest)
     except Drift as e:

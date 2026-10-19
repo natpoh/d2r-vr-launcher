@@ -663,6 +663,53 @@ TEST(unleashed_without_a_manifest_is_compared_by_its_plugins_version) {
 }
 #endif
 
+TEST(a_card_links_its_website_and_its_support_place_and_a_missing_mod_shows_its_install_help) {
+    Rig r;
+    r.Install("D2R-VR");
+    Model m = r.Make();
+    const ModEntry* pcvr = nullptr;
+    const ModEntry* vr = nullptr;
+    for (const ModEntry& x : m.mods()) {
+        if (x.id == "d2r-pcvr") pcvr = &x;
+        if (x.id == "d2r-vr") vr = &x;
+    }
+    REQUIRE(pcvr && vr);
+    // the built-in profiles: Website, then Discord, next to each other on both known cards
+    std::vector<CardLink> l = CardLinks(*pcvr);
+    REQUIRE(l.size() == 2);
+    CHECK_EQ(l[0].label, std::string("Website"));
+    CHECK_EQ(l[0].url, std::string("https://github.com/bearstonem/d2r-pcvr"));
+    CHECK_EQ(l[1].label, std::string("Discord"));
+    CHECK_EQ(l[1].url, std::string("https://discord.gg/DmbFfJAnnm"));
+    l = CardLinks(*vr);
+    REQUIRE(l.size() == 2);
+    CHECK_EQ(l[0].url, std::string("https://bodywalkvr.com/mods/d2r-vr"));
+    CHECK_EQ(l[1].label, std::string("Discord"));
+    CHECK_EQ(l[1].url, std::string("https://discord.gg/kVYjEdJx3e"));
+    // another support place is "Support"; a link that is not http(s) or repeats the website is not shown; another D2RLoader mod has no links
+    ModEntry e = *vr;
+    e.support = "https://github.com/natpoh/d2r-vr/issues";
+    CHECK_EQ(CardLinks(e).at(1).label, std::string("Support"));
+    e.support = "HTTPS://Discord.com/invite/abc";
+    CHECK_EQ(CardLinks(e).at(1).label, std::string("Discord"));
+    e.support = "file:///C:/evil.exe";
+    CHECK_EQ(CardLinks(e).size(), size_t(1));
+    e.support = e.homepage;
+    CHECK_EQ(CardLinks(e).size(), size_t(1));
+    e.homepage = "";
+    e.support = "https://discord.gg/kVYjEdJx3e";
+    REQUIRE(CardLinks(e).size() == 1);
+    CHECK_EQ(CardLinks(e)[0].label, std::string("Discord"));
+    e.known = false;
+    CHECK(CardLinks(e).empty());
+    // the install help: on the card of a known mod that is not installed (Unleashed here), not on an installed one
+    CHECK(CardInstallHelp(*pcvr).find("Install Unleashed through the shared launcher") == 0);
+    ModEntry installed = *pcvr;
+    installed.installed = true;
+    CHECK(CardInstallHelp(installed).empty());
+    CHECK(CardInstallHelp(*vr).empty());
+}
+
 TEST(the_question_before_an_uninstaller_names_the_mod_and_the_uninstaller) {
     Rig r;
     r.Install("D2R-PCVR");

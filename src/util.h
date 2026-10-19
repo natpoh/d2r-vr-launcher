@@ -26,7 +26,7 @@ struct Error : std::runtime_error {
 //   E_FIRST_START[32] (the game has never been started on this PC without mods: no Settings.json in Saved Games)
 [[noreturn]] void Throw(const std::string& code, const std::string& msg);
 
-constexpr const char* kLauncherVersion = "0.3.4";   // the window's version resource is read from this line (CMakeLists.txt)
+constexpr const char* kLauncherVersion = "0.3.5";   // the window's version resource is read from this line (CMakeLists.txt)
 constexpr const char* kManifestSchema = "vrmod-manifest/1";
 
 // ---- strings and paths (all paths in files are UTF-8 with '/')

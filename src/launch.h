@@ -2,7 +2,7 @@
 // process is started. The planner is pure (tested); starting a process is a backend (Windows only, not covered by tests).
 //
 // From d2r-pcvr's launch_windows.py, moved here:
-//   * the OpenXR runtime is chosen per launch with XR_RUNTIME_JSON (SteamVR, Virtual Desktop's VDXR, or a file) - the system-wide
+//   * the OpenXR runtime is chosen per launch with XR_RUNTIME_JSON (SteamVR, Virtual Desktop's VDXR, or a file; "system" removes an inherited one) - the system-wide
 //     active runtime is never changed;
 //   * a start from inside a Steam-launched process must go through Explorer's desktop (Steam's overlay injected into the loader
 //     bootstrap crashed the game with 0xC0000005); `via: auto` picks that when Steam's variables are in the environment;

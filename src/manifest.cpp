@@ -220,7 +220,7 @@ bool ParseManifest(const Json& j, Manifest* out, std::vector<Issue>* issues) {
     if (!Obj(v, &j, "", true)) return false;
     KnownKeys(v, j, "", {"schema", "id", "name", "version", "edition", "publisher", "homepage", "support", "license", "description", "build",
                          "game", "exclusive_group", "d2rloader_mod", "icon", "identity", "requires", "files", "external", "settings_app",
-                         "settings_hint", "launch", "hooks", "preconditions", "import", "logs", "update", "uninstall"});
+                         "settings_hint", "launch", "hooks", "preconditions", "import", "logs", "update", "uninstall", "install_help"});
 
     m.schema = Str(v, j, "schema", "", true);
     if (!m.schema.empty() && m.schema != kManifestSchema)
@@ -236,6 +236,7 @@ bool ParseManifest(const Json& j, Manifest* out, std::vector<Issue>* issues) {
     m.support = Str(v, j, "support", "", false);
     m.license = Str(v, j, "license", "", false);
     m.description = Str(v, j, "description", "", false);
+    m.install_help = Str(v, j, "install_help", "", false);
     // A D2RLoader mod is started with `D2RLoader.exe -mod <name>`: it has no files to swap and no exclusive group.
     if (const Json* dm = j.find("d2rloader_mod")) {
         if (Obj(v, dm, "/d2rloader_mod", false)) {

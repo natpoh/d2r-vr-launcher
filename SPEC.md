@@ -94,7 +94,8 @@ All swap paths must be under `{game}/`; no `..`, no drive, no `:` stream, no nam
 | Field | Meaning |
 |---|---|
 | `schema`, `id`, `name`, `version` | `"vrmod-manifest/1"`; `[a-z0-9-]{2,40}`; text; `major.minor.patch[-pre]` |
-| `edition`, `publisher`, `homepage`, `support`, `license`, `description`, `build{commit,date,channel}` | shown in the window and the support report; `support` = where THIS mod's bugs go |
+| `edition`, `publisher`, `homepage`, `support`, `license`, `description`, `build{commit,date,channel}` | shown in the window and the support report; `support` = where THIS mod's bugs go (the card's Discord / Support link next to Website) |
+| `install_help` | optional (0.3.5): the author's words to the player about installing the mod, shown in its install-view row and card tooltip while it is not installed |
 | `game{id, builds[], stores[], processes[]}` | `builds` = the game builds the mod was made for (a warning when the game differs; a `game_build_in` precondition makes it a block); `stores` = `steam`/`battlenet`; `processes` = what must not run while files change (default `D2R.exe`, `D2RLoader.exe`) |
 | `exclusive_group` | only one mod per group is active per game. Both VR mods are in `d2r-vr-plugin` (they hook the same game functions). Mods of different groups may be active together and must not share a file |
 | `identity{plugin_id, plugin_file, product_name, dll_sha256[], markers[], about_file, log}` | how the launcher recognises this mod's plugin in a game folder (`import`, `verify`): the published hashes, else a marker string inside the DLL (ASCII or UTF-16) |
@@ -253,7 +254,8 @@ specified in the concept document §7.4 and not built.
 * **Runtime of this start** (`runtimes[]`: `system`, `steamvr`, `vdxr`, `file`): the player's choice or the option's first. `steamvr` →
   `<Steam library>\steamapps\common\SteamVR\steamxr_win64.json` (libraries from `libraryfolders.vdf`); `vdxr` →
   `<Program Files>\Virtual Desktop Streamer\OpenXR\virtualdesktop-openxr.json`; `file` → the given manifest. The result is **only** `XR_RUNTIME_JSON` in the child's
-  environment: the system-wide active runtime is never changed. A missing runtime or one the option does not offer is `E_RUNTIME` (nothing starts).
+  environment: the system-wide active runtime is never changed. `system` ("System default") **removes** an inherited `XR_RUNTIME_JSON` from the child's
+  environment, so the game uses the runtime Windows has set, as the window shows. A missing runtime or one the option does not offer is `E_RUNTIME` (nothing starts).
 * **Environment rules** (`env[]`, per store; unset then set, in order). d2r-pcvr's rules as data: `SteamOverlayGameId` removed always; Steam edition: `SteamAppId`,
   `SteamGameId` replaced by `2536520`; Battle.net: both removed.
 * **`via`**: `direct`, `explorer`, or `auto` = Explorer when Steam started the launcher (`SteamGameId` / `SteamOverlayGameId` in the environment). The reason is d2r-pcvr's finding: a loader
