@@ -124,6 +124,13 @@ buttons, greyed Up to date), `install_view_update_available_100pct.png` (Update 
   `--install-now` (the view presses Install itself once its checks are done), `--shot-now` (with `--screenshot`: shoot at the first paint, the "checking..." state); `--screenshot` with `--install-view` shoots the view after its checks.
   A screenshot run asks no server unless the test switch is on, so no test reaches the internet.
 
+## After the install: the first start (launcher 0.3.4)
+
+Installing a mod is not enough on a fresh game install: the game writes its user settings (`<Saved Games>\Diablo II Resurrected\Settings.json`, the folder from `SHGetKnownFolderPath(FOLDERID_SavedGames)`,
+Steam and Battle.net alike) on its first start, and a mod started before that crashes at the logo screen (D2RLoader.exe, an unhandled C++ exception). So Play and `vrmodlauncher launch` refuse while that file
+(or its folder) is missing: the window says "Diablo II: Resurrected has not been started on this PC yet. Start it once without mods (from Steam or Battle.net), create a character, quit, then press Play again." with
+**OK** and **Start anyway**; the command line exits with `E_FIRST_START` (32) unless `--skip-first-start-check` is given (the window's `--play` takes the same switch). Nothing is written; `launcher.log` gets one line with the path checked.
+
 ## The library, for the window
 
 ```cpp

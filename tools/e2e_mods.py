@@ -62,7 +62,8 @@ def snap(root):
 
 
 def run(*args, show=True, env=None):
-    cmd = [cli, "--home", str(home), "--game", str(game), *args]
+    # --skip-first-start-check: `launch` does not depend on this PC's Saved Games (the game's Settings.json); every other command ignores it
+    cmd = [cli, "--home", str(home), "--game", str(game), "--skip-first-start-check", *args]
     r = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if show:
         print(f"\n$ vrmodlauncher {' '.join(args)}   [exit {r.returncode}]")
@@ -226,7 +227,7 @@ if a.gui:
     shutil.copy2(here / "examples" / "d2rloader-mods" / "d2r-pcvr" / "vrmod-manifest.json", game / "mods" / "D2R-PCVR" / "vrmod-manifest.json")
     gui = str(Path(a.gui).resolve())
     for mod, needle in (("d2r-vr", "D2R_VR_Settings.exe"), ("d2r-pcvr", "D2RLoader.exe")):
-        r = subprocess.run([gui, "--game", str(game), "--home", str(home), "--select", mod, "--play", "--dry-run"], capture_output=True, text=True, timeout=60)
+        r = subprocess.run([gui, "--game", str(game), "--home", str(home), "--select", mod, "--play", "--dry-run", "--skip-first-start-check"], capture_output=True, text=True, timeout=60)
         out = r.stdout
         gl = home / "logs" / "gui_last.txt"
         if not out and gl.exists():

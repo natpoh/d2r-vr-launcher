@@ -119,6 +119,7 @@ Options ParseOptions(const std::vector<std::string>& args) {
             o.shot_now = true;
         } else if (a == "--dry-run") o.dry_run = true;
         else if (a == "--play") o.play = true;
+        else if (a == "--skip-first-start-check") o.skip_first_start_check = true;
         else if (a == "--no-search") o.no_search = true;
         else if (a == "--processes") {
             std::string v;
@@ -160,6 +161,7 @@ const char* UsageText() {
            "  --select MOD_ID    preselect this mod (d2r-vr, d2r-pcvr, or the folder name of another D2RLoader mod)\n"
            "  --dry-run          Play shows what it would start and starts nothing\n"
            "  --play             no window: do Play once, print the outcome, exit with 0 or the refusal's code\n"
+           "  --skip-first-start-check  Play starts even when the game has never been started without mods (no Settings.json in Saved Games)\n"
            "  --screenshot FILE  render the window to a PNG and exit\n"
            "  --dpi N            lay the window out as at N dpi (a test aid)\n"
            "  --size WxH         the first size of the window's client area, in dp (a test aid)\n"
@@ -499,7 +501,7 @@ PlayState Model::CanPlay(bool game_running) const {
     return p;
 }
 
-StartOutcome Model::Play(bool dry_run) {
+StartOutcome Model::Play(bool dry_run, bool skip_first_start_check) {
     StartOutcome out;
     const GameChoice* g = game();
     const ModEntry* m = mod();
@@ -518,9 +520,12 @@ StartOutcome Model::Play(bool dry_run) {
     NoBackend nb;
     LaunchBackend& backend = svc_.backend ? *svc_.backend : static_cast<LaunchBackend&>(nb);
     req.dry_run = dry_run || !svc_.backend;
+    req.saved_games = svc_.saved_games;
+    req.skip_first_start_check = skip_first_start_check || opt_.skip_first_start_check;
     ProcessProbe* probe = svc_.probe;
     FakeProbe none;
     out = StartMod(req, probe ? *probe : static_cast<ProcessProbe&>(none), backend, svc_.env, svc_.runtime_roots);
+    if (!out.first_start.empty()) Log(out.first_start);
     if (!out.code.empty()) {
         Log("refused " + m->id + " [" + out.code + "]: " + out.message);
         return out;
@@ -584,6 +589,7 @@ Machine SystemMachine() {
     s.env = CurrentEnvironment();
     s.runtime_roots = SystemRuntimeRoots(s.env);
     s.game_roots = SystemGameRoots(s.env);
+    s.saved_games = SavedGamesFolder();
     s.probe = probe.get();
     s.backend = backend.get();
     return s;

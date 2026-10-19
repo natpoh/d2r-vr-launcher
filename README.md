@@ -51,6 +51,11 @@ is tested (`engine_test`, `tools/e2e_switch.py` on a copy of a real install) and
 
 Nothing here touches a real game folder unless you point `--game` at one; a start refuses while the game runs.
 
+**Start the game once without mods first (0.3.4).** A fresh install has no `Saved Games\Diablo II Resurrected\Settings.json` yet (the game writes it on its first start), and a mod
+started before that dies at the logo screen. So Play (any mod, any runtime) and `vrmodlauncher launch` first look for that file (the folder from Windows, `FOLDERID_SavedGames`;
+Steam and Battle.net alike) and, when it is missing, start nothing: the window says "Start it once without mods (from Steam or Battle.net), create a character, quit, then press Play
+again" with OK and **Start anyway**; the command line fails with `E_FIRST_START` (exit 32) unless `--skip-first-start-check` is given. `launcher.log` gets one line with the path checked.
+
 ## The window: `D2RVRLauncher.exe`
 
 Plain Win32 and GDI+ (nothing to install; icon, pictures, manifest and version are in the exe). Built as the CMake target `d2rvrlauncher` on Windows.
@@ -79,7 +84,8 @@ release shows an amber "Update available: 0.167.0 -> 0.168.0" and an **Update** 
 D2RVRLauncher.exe [--game DIR] [--home DIR] [--select MOD_ID] [--dry-run]
 D2RVRLauncher.exe --install-view [--install-tick loader,authentic,unleashed]    the window with the install view opened right away (the card's Install / Update ticks one piece)
 D2RVRLauncher.exe --play [--dry-run] --game DIR     no window: do Play once, print the outcome, exit 0 or the refusal's code (10 game running, 11 not installed / no D2RLoader,
-                                                    24 runtime, 25 not a game); also written to <home>\logs\gui_last.txt
+                                                    24 runtime, 25 not a game, 32 the game never started without mods); also written to <home>\logs\gui_last.txt
+                                                    (--skip-first-start-check: start even with no Settings.json in Saved Games, what "Start anyway" does)
 D2RVRLauncher.exe --screenshot FILE.png             render the window (with --install-view: the view) to a PNG and exit   (test aids: --dpi N, --size WxH, --no-search, --processes LIST,
                                                     --no-update-check, --shot-now)
 # test aids that reach a web server: only with VRML_ALLOW_HTTP_HOST=127.0.0.1:PORT (a loopback test server), else exit 2

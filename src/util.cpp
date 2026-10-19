@@ -39,6 +39,7 @@ void Throw(const std::string& code, const std::string& msg) {
     else if (code == "E_UNTRUSTED") exit = 29;
     else if (code == "E_CANCELLED") exit = 30;
     else if (code == "E_UAC_DECLINED") exit = 31;
+    else if (code == "E_FIRST_START") exit = 32;
     throw Error(code, exit, msg);
 }
 

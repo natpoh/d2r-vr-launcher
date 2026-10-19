@@ -280,6 +280,7 @@ private:
     void OnCommand(int id, int code, HWND from);
     void OnCardChosen(int cardIndex, bool focus);
     void DoPlay();
+    bool AskStartAnyway();
     void ShowOutcome(const StartOutcome& so);
     void DoSettings();
     void DoLogs();
@@ -1451,9 +1452,35 @@ void Window::DoPlay() {
         return;
     }
     const HCURSOR old = SetCursor(LoadCursorW(nullptr, IDC_WAIT));      // checking D2RLoader's files takes a moment
-    const StartOutcome so = model_.Play(opt_.dry_run);
+    StartOutcome so = model_.Play(opt_.dry_run);
     SetCursor(old);
+    if (so.code == "E_FIRST_START" && AskStartAnyway()) {
+        SetCursor(LoadCursorW(nullptr, IDC_WAIT));
+        so = model_.Play(opt_.dry_run, true);
+        SetCursor(old);
+    }
     ShowOutcome(so);
+}
+
+// The game has never been started without mods (no Settings.json in Saved Games): OK stops, "Start anyway" starts as before (for when the check is wrong).
+bool Window::AskStartAnyway() {
+    constexpr int kStartAnyway = 100;
+    const TASKDIALOG_BUTTON buttons[] = {{kStartAnyway, L"Start anyway"}};
+    const std::wstring text = W(kFirstStartMessage);
+    TASKDIALOGCONFIG tc = {};
+    tc.cbSize = sizeof(tc);
+    tc.hwndParent = hwnd_;
+    tc.dwFlags = TDF_POSITION_RELATIVE_TO_WINDOW;
+    tc.dwCommonButtons = TDCBF_OK_BUTTON;
+    tc.pszWindowTitle = L"D2R VR Launcher";
+    tc.pszMainIcon = TD_INFORMATION_ICON;
+    tc.pszContent = text.c_str();
+    tc.cButtons = 1;
+    tc.pButtons = buttons;
+    tc.nDefaultButton = IDOK;
+    int pressed = IDOK;
+    if (FAILED(TaskDialogIndirect(&tc, &pressed, nullptr, nullptr))) return false;
+    return pressed == kStartAnyway;
 }
 
 void Window::ShowOutcome(const StartOutcome& so) {

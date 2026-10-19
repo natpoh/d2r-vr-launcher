@@ -23,9 +23,10 @@ struct Error : std::runtime_error {
 //   E_IDENTITY[12] E_SCHEMA[13] E_IO[20] E_ROLLBACK[21] E_JOURNAL[22] E_HASH[23] E_RUNTIME[24] E_GAME[25]
 //   E_ARCHIVE[26] (a ZIP that is damaged or unsafe) E_UNVERIFIED[27] (no published checksum and the caller did not accept that)
 //   E_SETUP[28] (a mod's Setup ended with an error) E_UNTRUSTED[29] (an address or an answer from a server the launcher does not trust) E_CANCELLED[30] (the player or the caller stopped a download) E_UAC_DECLINED[31]
+//   E_FIRST_START[32] (the game has never been started on this PC without mods: no Settings.json in Saved Games)
 [[noreturn]] void Throw(const std::string& code, const std::string& msg);
 
-constexpr const char* kLauncherVersion = "0.3.3";   // the window's version resource is read from this line (CMakeLists.txt)
+constexpr const char* kLauncherVersion = "0.3.4";   // the window's version resource is read from this line (CMakeLists.txt)
 constexpr const char* kManifestSchema = "vrmod-manifest/1";
 
 // ---- strings and paths (all paths in files are UTF-8 with '/')

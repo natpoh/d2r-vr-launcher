@@ -27,7 +27,8 @@ from pathlib import Path
 
 FAILS = []
 RUN_TIMEOUT = 90
-EXTRA = ["--no-update-check"]          # arguments for every run: no quiet look at the internet (tests never use it); --processes - when a real game runs, see main
+EXTRA = ["--no-update-check", "--skip-first-start-check"]   # arguments for every run: no quiet look at the internet (tests never use it), Play does not depend on this PC's
+                                                            # Saved Games (Settings.json); --processes - when a real game runs, see main
 
 
 def check(cond, what):

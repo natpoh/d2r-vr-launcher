@@ -6,6 +6,7 @@
 //   DiscoverMods               the mods of one game: the VR mods the launcher knows (installed or not) and every other D2RLoader mod
 //   CheckLoader                is D2RLoader there and are its files the reviewed 1.3.1-beta ones
 //   ListRuntimes               the OpenXR runtimes a start can use (chosen per start, never changed system-wide)
+//   GameStartedOnce            has the plain game been started on this PC (its Settings.json in Saved Games)
 //   StartMod                   all the checks of a start, then the process
 //   LoadSettings / SaveSettings  what the launcher remembers (game folder, last mod, a runtime per mod)
 #pragma once
@@ -118,6 +119,20 @@ struct RuntimeChoice {
 };
 std::vector<RuntimeChoice> ListRuntimes(const RuntimeRoots& roots, const std::map<std::string, std::string>& env);
 
+// ---- has the game been started once without mods
+// A fresh install has no user settings yet: the game writes <Saved Games>\Diablo II Resurrected\Settings.json on its first start (Steam and Battle.net
+// alike), and a mod started before that dies at the logo screen (D2RLoader.exe, an unhandled C++ exception).
+fs::path SavedGamesFolder();                                       // Windows' Saved Games folder (FOLDERID_SavedGames); empty when it cannot be found, and elsewhere
+fs::path GameSettingsFile(const fs::path& savedGames);            // <savedGames>/Diablo II Resurrected/Settings.json
+bool GameStartedOnce(const fs::path& savedGames);                  // that file is there (a missing folder counts as not started)
+// The check of a start: true when it may go on (the file is there, `skip`, or no Saved Games folder to look in); *line gets one line for launcher.log
+// naming the path checked.
+bool FirstStartCheck(const fs::path& savedGames, bool skip, std::string* line);
+// What StartMod's E_FIRST_START says (the window shows it with OK and "Start anyway").
+constexpr const char* kFirstStartMessage =
+    "Diablo II: Resurrected has not been started on this PC yet. Start it once without mods (from Steam or Battle.net), create a character, quit, "
+    "then press Play again.";
+
 // ---- a start
 struct StartRequest {
     fs::path game;
@@ -127,16 +142,19 @@ struct StartRequest {
     fs::path runtime_file;
     std::string store;                         // "" = detected
     bool dry_run = false;                      // build the plan and run the checks, start nothing
+    fs::path saved_games;                      // where the game keeps its Settings.json (SavedGamesFolder()); empty: the first-start check is not made
+    bool skip_first_start_check = false;       // "Start anyway" / --skip-first-start-check: the check is reported, not obeyed
 };
 struct StartOutcome {
     bool started = false;
-    std::string code;                          // "" or E_GAME, E_GAME_RUNNING, E_MOD_NOT_INSTALLED, E_LOADER_MISSING, E_RUNTIME, E_PRECONDITION, E_IO ...
+    std::string code;                          // "" or E_GAME, E_GAME_RUNNING, E_MOD_NOT_INSTALLED, E_LOADER_MISSING, E_RUNTIME, E_PRECONDITION, E_FIRST_START, E_IO ...
     std::string message;                       // for the player, one or two sentences
     std::vector<std::string> warnings;         // the start went on (or would)
+    std::string first_start;                   // the first-start check, one line for launcher.log (the path checked); "" when it was not reached
     LaunchPlan plan;
 };
 // Never throws for a refusal: the outcome says why. The checks: D2R.exe in the folder; the game and D2RLoader not running; the mod installed; D2RLoader.exe
-// there; the launch plan (option, store, runtime) builds. Warnings: the game build differs from the mod's, D2RLoader's files are not the reviewed ones.
+// there; the launch plan (option, store, runtime) builds; the game has been started once without mods (E_FIRST_START). Warnings: the game build differs from the mod's, D2RLoader's files are not the reviewed ones.
 StartOutcome StartMod(const StartRequest& req, ProcessProbe& probe, LaunchBackend& backend, const std::map<std::string, std::string>& env,
                       const RuntimeRoots& roots);
 // The process exit code of a refusal (the CLI contract, also what the window's `--play` returns): 0 for "".

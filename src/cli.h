@@ -12,6 +12,7 @@
 //     import <id> [--force]         take over an installation made before the launcher (and collect its backups)
 //     requirements <id>             does the game folder have what <id> needs (D2RLoader, ...)
 //     launch <id> [--option ID] [--runtime steamvr|vdxr|system|file] [--runtime-file F] [--store steam|battlenet] [--dry-run]
+//                                   [--skip-first-start-check]   (start even when the game has never been started without mods: no Settings.json in Saved Games)
 //     deps verify <zip>             is this file the reviewed D2RLoader archive
 //     releases [--json]             (network) the newest D2R VR Authentic and Unleashed, what --game has, "update available"
 //     install loader|authentic|unleashed --game DIR [--dry-run] [--no-run] [--accept-unverified] [--force] [--json]
@@ -23,7 +24,7 @@
 // 12 a decision is needed (collision, in use, wrong identity); 13 newer schema; 20 I/O error (rolled back); 21 rollback incomplete;
 // 22 an unfinished switch needs `recover`; 23 hash mismatch; 24 OpenXR runtime; 25 not a game folder; 26 damaged or unsafe ZIP; 27 no published
 // checksum and --accept-unverified was not given; 28 a Setup ended with an error; 29 an address or answer from an untrusted server;
-// 30 cancelled; 31 the UAC prompt was declined.
+// 30 cancelled; 31 the UAC prompt was declined; 32 the game has never been started on this PC without mods (`launch`; --skip-first-start-check).
 #pragma once
 
 #include <iosfwd>
@@ -46,6 +47,7 @@ struct CliEnv {
     ProcessProbe* probe = nullptr;
     LaunchBackend* backend = nullptr;              // null: `launch` can only --dry-run
     RuntimeRoots runtime_roots;
+    fs::path saved_games;                          // the player's Saved Games folder (main.cpp: SavedGamesFolder()); empty: `launch` makes no first-start check
     // the network and the Setup runner; null: the real ones (WinHTTP, ShellExecute). Tests put fakes here.
     Downloader* downloader = nullptr;
     HttpClient* http = nullptr;

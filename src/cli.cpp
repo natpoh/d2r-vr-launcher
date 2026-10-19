@@ -104,6 +104,8 @@ const char* kUsage =
     "  import <id> | import-settings <id> --from DIR | requirements <id> | launch <id> | deps verify <zip> | version |\n"
     "  releases [--json] | install loader|authentic|unleashed [--dry-run] [--no-run] [--accept-unverified] [--force]\n";
 
+const char* kSkipFirstStartHint = " (--skip-first-start-check starts it anyway)";
+
 fs::path NeedGame(const Args& a, const CliEnv& env) {
     std::string g = a.get("--game");
     if (g.empty()) g = EnvGet(env.env, "VRMOD_GAME");
@@ -381,11 +383,14 @@ int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
                     req.runtime_file = P(a.get("--runtime-file").empty() ? ls.mods[e.id].runtime_file : a.get("--runtime-file"));
                     req.store = a.get("--store");
                     req.dry_run = a.flag("--dry-run") || !env.backend;
+                    req.saved_games = env.saved_games;
+                    req.skip_first_start_check = a.flag("--skip-first-start-check");
                     NoBackend nb;
                     StartOutcome so = StartMod(req, *env.probe, env.backend ? *env.backend : nb, env.env, env.runtime_roots);
+                    if (!so.first_start.empty()) log.Line(so.first_start);
                     for (const std::string& w : so.warnings) out << "  warning: " << w << "\n";
                     if (!so.code.empty()) {
-                        err << "error [" << so.code << "]: " << so.message << "\n";
+                        err << "error [" << so.code << "]: " << so.message << (so.code == "E_FIRST_START" ? kSkipFirstStartHint : "") << "\n";
                         return StartExitCode(so.code);
                     }
                     if (req.dry_run) {
@@ -416,6 +421,10 @@ int RunCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
             ctx.roots = env.runtime_roots;
             ctx.runtime = a.get("--runtime");
             ctx.runtime_file = P(a.get("--runtime-file"));
+            std::string firstStart;
+            const bool mayStart = FirstStartCheck(env.saved_games, a.flag("--skip-first-start-check"), &firstStart);
+            log.Line(firstStart);
+            if (!mayStart) Throw("E_FIRST_START", std::string(kFirstStartMessage) + kSkipFirstStartHint);
             if (!isActive) {
                 if (a.flag("--dry-run")) out << "would first activate " << m.id << " (it is not the active mod)\n";
                 else {

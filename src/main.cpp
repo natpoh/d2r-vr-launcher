@@ -32,5 +32,6 @@ int main(int argc, char** argv) {
     env.backend = backend.get();
     env.default_home = vrml::DefaultHome(env.env);
     env.runtime_roots = vrml::SystemRuntimeRoots(env.env);   // Program Files and the Steam libraries
+    env.saved_games = vrml::SavedGamesFolder();               // where the game keeps its Settings.json (`launch`'s first-start check)
     return vrml::RunCli(args, std::cout, std::cerr, env);
 }
