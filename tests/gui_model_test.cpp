@@ -201,6 +201,32 @@ TEST(play_remembers_what_was_used_and_a_dry_run_or_a_refusal_does_not) {
     CHECK_EQ(s.mods.at("d2r-pcvr").runtime, std::string("system"));
 }
 
+TEST(play_stops_when_the_game_was_never_started_and_start_anyway_starts) {
+    Rig r;
+    r.Install("D2R-PCVR");
+    r.svc.saved_games = r.sb.root / "Saved Games";          // a fake Saved Games without the game's Settings.json (never the machine's)
+    {
+        Model m = r.Make();
+        const StartOutcome refused = m.Play(false);
+        CHECK_EQ(refused.code, std::string("E_FIRST_START"));
+        CHECK_EQ(refused.message, std::string(kFirstStartMessage));
+        CHECK(r.backend.started.empty());
+        CHECK(!IsFile(r.sb.home / "settings.json"));
+        int code = 0;
+        FormatOutcome(refused, false, &code);
+        CHECK_EQ(code, 32);                                 // what `--play` exits with
+        CHECK(m.Play(false, true).started);                 // "Start anyway"
+        CHECK_EQ(r.backend.started.size(), size_t(1));
+    }
+    const std::string log = tt::Read(r.sb.home / "logs" / "launcher.log");
+    CHECK(log.find(U(GameSettingsFile(r.svc.saved_games)) + " is missing") != std::string::npos);
+    CHECK(log.find("(started anyway)") != std::string::npos);
+    // --skip-first-start-check does what "Start anyway" does
+    r.opt = ParseOptions({"--game", U(r.sb.game), "--home", U(r.sb.home), "--skip-first-start-check"});
+    CHECK(r.opt.skip_first_start_check);
+    CHECK(r.Make().Play(false).started);
+}
+
 TEST(play_remembers_the_game_folder_when_it_was_found_not_given) {
     Rig r;
     r.Install("D2R-VR");

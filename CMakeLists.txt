@@ -28,7 +28,7 @@ add_library(vrml STATIC
     src/net.cpp src/zip.cpp src/install.cpp src/releases.cpp src/setup_run.cpp src/cli_install.cpp src/install_run.cpp src/versioninfo.cpp)
 target_include_directories(vrml PUBLIC src ${CMAKE_CURRENT_BINARY_DIR}/generated)
 if(WIN32)
-    target_link_libraries(vrml PUBLIC winhttp shell32 advapi32 version)   # HTTPS downloads (WinHTTP), running a Setup (ShellExecuteEx), a plugin's version resource (versioninfo.cpp)
+    target_link_libraries(vrml PUBLIC winhttp shell32 ole32 advapi32 version)   # HTTPS downloads (WinHTTP), running a Setup (ShellExecuteEx), Saved Games (SHGetKnownFolderPath), a plugin's version resource (versioninfo.cpp)
 endif()
 if(MSVC)
     target_compile_options(vrml PUBLIC /utf-8 /W4 /EHsc /permissive-)

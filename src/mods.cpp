@@ -14,6 +14,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <shlobj.h>
 #endif
 
 namespace vrml {
@@ -508,6 +509,34 @@ std::vector<RuntimeChoice> ListRuntimes(const RuntimeRoots& roots, const std::ma
     return v;
 }
 
+// ------------------------------------------------------------------ has the game been started once
+
+fs::path SavedGamesFolder() {
+#ifdef _WIN32
+    PWSTR p = nullptr;
+    fs::path r;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_SavedGames, 0, nullptr, &p)) && p) r = fs::path(p);
+    CoTaskMemFree(p);
+    return r;
+#else
+    return {};
+#endif
+}
+
+fs::path GameSettingsFile(const fs::path& savedGames) { return savedGames / "Diablo II Resurrected" / "Settings.json"; }
+
+bool GameStartedOnce(const fs::path& savedGames) { return IsFile(GameSettingsFile(savedGames)); }
+
+bool FirstStartCheck(const fs::path& savedGames, bool skip, std::string* line) {
+    if (savedGames.empty()) {
+        *line = "first-start check: not made (Windows did not say where Saved Games is)";
+        return true;
+    }
+    const bool once = GameStartedOnce(savedGames);
+    *line = "first-start check: " + U(GameSettingsFile(savedGames)) + (once ? " is there" : skip ? " is missing (started anyway)" : " is missing: not started");
+    return once || skip;
+}
+
 // ------------------------------------------------------------------ a start
 
 StartOutcome StartMod(const StartRequest& req, ProcessProbe& probe, LaunchBackend& backend, const std::map<std::string, std::string>& env,
@@ -554,6 +583,7 @@ StartOutcome StartMod(const StartRequest& req, ProcessProbe& probe, LaunchBacken
     } catch (const Error& e) {
         return refuse(e.code, e.what());
     }
+    if (!FirstStartCheck(req.saved_games, req.skip_first_start_check, &out.first_start)) return refuse("E_FIRST_START", kFirstStartMessage);
     if (req.dry_run) return out;
     std::string error;
     if (!backend.Start(out.plan, ApplyEnv(env, out.plan), &error)) return refuse("E_IO", "Could not start the game: " + error);
@@ -567,6 +597,7 @@ int StartExitCode(const std::string& code) {
     if (code == "E_RUNTIME") return 24;
     if (code == "E_GAME") return 25;
     if (code == "E_IO") return 20;
+    if (code == "E_FIRST_START") return 32;
     return 11;      // E_MOD_NOT_INSTALLED, E_LOADER_MISSING, E_PRECONDITION and anything else the start is not allowed to go on for
 }
 

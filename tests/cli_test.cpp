@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "cli.h"
+#include "mods.h"
 #include "sandbox.h"
 #include "test.h"
 
@@ -152,6 +153,36 @@ TEST(an_unfinished_switch_is_recovered_first) {
     CHECK(Has(r.out, "recover:"));
     CHECK_EQ(tt::Read(w.sb.game / "d2rloader/plugins/d2rl-vrcam.dll"), std::string("BETA-DLL-2.0.0 BETA-MARKER"));
     CHECK_EQ(w.Cli({"recover"}).code, 0);
+}
+
+TEST(launch_stops_when_the_game_was_never_started_unless_told_to_skip) {
+    World w;
+    w.env.saved_games = w.sb.root / "Saved Games";          // a fake Saved Games without the game's Settings.json (never the machine's)
+    tt::Write(w.sb.game / "mods" / "D2R-PCVR" / "D2R-PCVR.mpq" / "modinfo.json", "{ \"name\": \"D2R-PCVR\" }");
+    // a D2RLoader mod
+    Run r = w.Cli({"launch", "d2r-pcvr", "--runtime", "system"});
+    CHECK_EQ(r.code, 32);
+    CHECK(Has(r.err, "E_FIRST_START"));
+    CHECK(Has(r.err, "--skip-first-start-check"));
+    CHECK(w.backend.started.empty());
+    const std::string settings = U(GameSettingsFile(w.env.saved_games));
+    CHECK(Has(tt::Read(w.sb.home / "logs" / "launcher.log"), settings + " is missing"));
+    r = w.Cli({"launch", "d2r-pcvr", "--runtime", "system", "--skip-first-start-check"});
+    CHECK_EQ(r.code, 0);
+    CHECK_EQ(w.backend.started.size(), size_t(1));
+    CHECK(Has(tt::Read(w.sb.home / "logs" / "launcher.log"), "(started anyway)"));
+    // a registered mod: refused before anything is activated
+    w.Register();
+    r = w.Cli({"launch", "alpha"});
+    CHECK_EQ(r.code, 32);
+    CHECK(Has(r.err, "E_FIRST_START"));
+    CHECK(!tt::Snapshot(w.sb.game).count("d2rloader/plugins/d2rl-vrcam.dll"));
+    // the game has been started once: no switch needed
+    tt::Write(GameSettingsFile(w.env.saved_games), "{}");
+    r = w.Cli({"launch", "d2r-pcvr", "--runtime", "system"});
+    CHECK_EQ(r.code, 0);
+    CHECK_EQ(w.backend.started.size(), size_t(2));
+    CHECK(Has(tt::Read(w.sb.home / "logs" / "launcher.log"), settings + " is there"));
 }
 
 TEST(launch_activates_first_and_starts) {

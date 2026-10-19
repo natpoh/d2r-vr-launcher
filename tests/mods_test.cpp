@@ -564,6 +564,67 @@ TEST(a_refusal_has_an_exit_code) {
     CHECK_EQ(StartExitCode("E_RUNTIME"), 24);
     CHECK_EQ(StartExitCode("E_GAME"), 25);
     CHECK_EQ(StartExitCode("E_IO"), 20);
+    CHECK_EQ(StartExitCode("E_FIRST_START"), 32);
+}
+
+// ================================================================== has the game been started once without mods (Settings.json in a fake Saved Games)
+
+TEST(the_first_start_check_looks_for_the_games_settings_json_in_saved_games) {
+    tt::Sandbox sb;
+    const fs::path saved = sb.root / "Saved Games";
+    CHECK(EndsWith(U(GameSettingsFile(saved)), "Saved Games/Diablo II Resurrected/Settings.json"));
+    std::string line;
+    // no Saved Games folder at all: never started
+    CHECK(!GameStartedOnce(saved));
+    CHECK(!FirstStartCheck(saved, false, &line));
+    CHECK(line.find(U(GameSettingsFile(saved))) != std::string::npos);
+    CHECK(line.find("is missing") != std::string::npos);
+    // the game's folder without the file: never started
+    EnsureDir(saved / "Diablo II Resurrected");
+    CHECK(!GameStartedOnce(saved));
+    CHECK(!FirstStartCheck(saved, false, &line));
+    // skipped: the start goes on, the line says so
+    CHECK(FirstStartCheck(saved, true, &line));
+    CHECK(line.find("started anyway") != std::string::npos);
+    // the file is there: started once
+    tt::Write(GameSettingsFile(saved), "{}");
+    CHECK(GameStartedOnce(saved));
+    CHECK(FirstStartCheck(saved, false, &line));
+    CHECK(line.find("is there") != std::string::npos);
+    // no Saved Games folder known: not checked
+    CHECK(FirstStartCheck(fs::path(), false, &line));
+    CHECK(line.find("not made") != std::string::npos);
+}
+
+TEST(a_start_stops_when_the_game_was_never_started_and_goes_on_when_told_to) {
+    tt::Sandbox sb;
+    InstallMod(sb.game, "D2R-PCVR");
+    Recording rec;
+    RuntimeRoots roots;
+    StartRequest req;
+    req.game = sb.game;
+    req.mod = *Find(DiscoverMods(sb.game), "d2r-pcvr");
+    req.runtime = "system";
+    req.saved_games = sb.root / "Saved Games";
+    StartOutcome o = StartMod(req, sb.probe, rec, {}, roots);
+    CHECK_EQ(o.code, std::string("E_FIRST_START"));
+    CHECK_EQ(o.message, std::string(kFirstStartMessage));
+    CHECK(o.first_start.find("is missing") != std::string::npos);
+    CHECK(rec.started.empty());
+    req.dry_run = true;                                    // a dry run makes the same check
+    CHECK_EQ(StartMod(req, sb.probe, rec, {}, roots).code, std::string("E_FIRST_START"));
+    req.dry_run = false;
+    req.skip_first_start_check = true;                     // "Start anyway"
+    o = StartMod(req, sb.probe, rec, {}, roots);
+    CHECK_EQ(o.code, std::string(""));
+    CHECK(o.started);
+    CHECK_EQ(rec.started.size(), size_t(1));
+    req.skip_first_start_check = false;
+    tt::Write(GameSettingsFile(req.saved_games), "{}");     // the game has been started once
+    o = StartMod(req, sb.probe, rec, {}, roots);
+    CHECK_EQ(o.code, std::string(""));
+    CHECK(o.first_start.find("is there") != std::string::npos);
+    CHECK_EQ(rec.started.size(), size_t(2));
 }
 
 // ================================================================== which version is installed (found_version): manifest, a manifest that does not validate, the plugin's version resource

@@ -69,7 +69,8 @@ def diff(x, y):
 
 
 def run(*args, show=True, env=None):
-    cmd = [exe, "--home", str(home), "--game", str(game), *args]
+    # --skip-first-start-check: `launch` does not depend on this PC's Saved Games (the game's Settings.json); every other command ignores it
+    cmd = [exe, "--home", str(home), "--game", str(game), "--skip-first-start-check", *args]
     t = time.time()
     r = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if show:

@@ -22,6 +22,7 @@ struct Options {
     std::string screenshot;    // --screenshot FILE.png: render the window, save, exit
     bool dry_run = false;      // --dry-run: Play shows the plan and starts nothing
     bool play = false;         // --play: no window: do Play once, print the outcome, exit with its code
+    bool skip_first_start_check = false;       // --skip-first-start-check: Play starts even with no Settings.json in Saved Games (support, tests)
     bool help = false;         // --help
     bool no_search = false;    // --no-search: do not look for installed games (Steam, Battle.net); only the remembered folder counts (a test aid)
     bool fake_processes = false;               // --processes LIST: the processes that "run" are exactly these (a test aid; "-" = none)
@@ -54,6 +55,7 @@ struct Machine {
     std::map<std::string, std::string> env;
     RuntimeRoots runtime_roots;
     GameRoots game_roots;
+    fs::path saved_games;                // the player's Saved Games folder (the first-start check); empty = not checked
     ProcessProbe* probe = nullptr;       // not owned
     LaunchBackend* backend = nullptr;    // not owned; null = nothing can be started (Play is a dry run)
 };
@@ -145,7 +147,8 @@ public:
     // Every process name the chosen mod must not run beside (D2R.exe, D2RLoader.exe): what the window polls.
     std::vector<std::string> WatchedProcesses() const;
     bool GameRunning() const;
-    StartOutcome Play(bool dry_run);                         // StartMod, then remembers what was used (not after a dry run, not after a refusal)
+    // StartMod, then remembers what was used (not after a dry run, not after a refusal). skip_first_start_check: the player chose "Start anyway".
+    StartOutcome Play(bool dry_run, bool skip_first_start_check = false);
 
     // ---- what is remembered
     LauncherSettings& settings() { return settings_; }
