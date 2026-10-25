@@ -171,7 +171,6 @@ struct LauncherSettings {
     std::string game;                          // the folder the player picked last
     std::string last_mod;                      // mod id
     bool close_on_start = false;               // the window closes itself once the game has been started
-    bool check_updates_on_start = true;        // a quiet look at both mods' newest releases once per launch (one request per source); off = never asks by itself
     bool install_view_offered = false;         // the install view was offered once on a first run (no mod installed): not offered again
     std::map<std::string, ModSettings> mods;   // by mod id
 };

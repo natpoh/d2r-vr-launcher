@@ -15,8 +15,9 @@ What is checked
      test aids refuse to run without the loopback switch
   2. the install view, driven with window messages: what is ticked and why, the Tab order, the question before a download without a published checksum (and
      its default button, No), a real install, a cancel in the middle of a download, the refusal while the game runs and without a game folder
-  3. the main window: the update badge and the Install / Update button of a card, the quiet check (off by --no-update-check and by the setting, silent when
-     the server is down), the "Check for updates when the launcher starts" box, the offer of the install view on a first run
+  3. the main window: the update badge and the Install / Update button of a card, the quiet check (always since 0.3.6: also with the settings of a launcher
+     whose old "Check for updates when the launcher starts" box was unticked; off only by --no-update-check; silent when the server is down; not again when the
+     window comes back to the front within the hour), the offer of the install view on a first run
   2b. the rows of the view: each row's own buttons (Install / Update / Repair / a greyed Up to date, and Uninstall on an installed mod), nothing ticked unless it is a
      real install or update, a downgrade never offered (Authentic 0.170.0 installed while the site says 0.169), an installed version found in a manifest that does not
      validate or in the plugin's version resource, a row's button running only its piece, the row's Uninstall (the question, No runs nothing, the mod's own
@@ -84,7 +85,8 @@ IDYES, IDNO = 6, 7
 # the control ids of gui_install_view.cpp and gui_window.cpp
 V_ROWS, V_NOTICE, V_STEP, V_PROGRESS, V_LOG, V_CHECK, V_INSTALL, V_CLOSE, V_BOX = 210, 211, 212, 213, 214, 215, 216, 2, 1100       # V_BOX + 0 loader, 1 Authentic, 2 Unleashed
 V_ACT, V_UN = 1200, 1300          # + 0 / 1 / 2: each row's own Install / Update / Repair / Up to date button and its Uninstall button
-M_LIST, M_INSTALL_VIEW, M_UPDATE_CHECK, M_MESSAGE, M_LOG = 105, 119, 120, 117, 118
+M_LIST, M_INSTALL_VIEW, M_UPDATE_CHECK, M_MESSAGE, M_LOG = 105, 119, 120, 117, 118     # M_UPDATE_CHECK: the box of 0.3.0-0.3.5, gone since 0.3.6
+WM_ACTIVATEAPP = 0x1C
 CARD_RADIO, CARD_LINK, CARD_INSTALL = 1000, 2000, 3000
 VIEW_CLASS, MAIN_CLASS = "D2RVRLauncherInstallView", "D2RVRLauncherWindow"
 
@@ -241,6 +243,7 @@ def set_auth(**kw):
 
 def api_version(h):
     time.sleep(STATE["api_delay"])
+    STATE.setdefault("auth_queries", []).append(h.path)
     v = h.path.split("v=")[-1] if "v=" in h.path else ""
     if v == AUTH["newest"] and not STATE["auth_naive"]:
         h.reply(200, json.dumps({"version": "0.0.0", "download_url": "", "changelog": ""}).encode(), ctype="application/json")
@@ -710,7 +713,7 @@ def part_0_version():
     import re
     want = re.search(r'kLauncherVersion = "([^"]+)"', (HERE / "src" / "util.h").read_text(encoding="utf-8")).group(1)
     got = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-Item '{EXE}').VersionInfo.FileVersion"], capture_output=True, text=True).stdout.strip()
-    check(want == "0.3.5", f"the launcher is 0.3.5 ({want})")
+    check(want == "0.3.6", f"the launcher is 0.3.6 ({want})")
     check(got == want, f"the exe's version resource follows it ({got!r})")
     cli = Path(EXE).with_name("vrmodlauncher.exe")
     if cli.exists():
@@ -1371,8 +1374,13 @@ def part_3_main_window():
             if i in ids:
                 break
             ids.append(i)
-        check(ids == [101, 102, 1000, 3000, 3001, 4000, 4001, 2000, 2001, 107, 111, 110, 120, 119, 114, 116, 118],
-              f"Tab order of the main window: game folder, Browse, the card, both Install / Update buttons, both Uninstall buttons, both Website links, runtime, Play, the two boxes, Install / update mods, Logs, About, the log ({ids})")
+        check(ids == [101, 102, 1000, 3000, 3001, 4000, 4001, 2000, 2001, 107, 111, 110, 119, 114, 116, 118],
+              f"Tab order of the main window: game folder, Browse, the card, both Install / Update buttons, both Uninstall buttons, both Website links, runtime, Play, the box, Install / update mods, Logs, About, the log ({ids})")
+        check(not dlg(main, M_UPDATE_CHECK), "no 'Check for updates when the launcher starts' box any more: the window always looks")
+        n = api_hits()
+        user32.SendMessageW(main, WM_ACTIVATEAPP, 1, 0)
+        time.sleep(1.5)
+        check(api_hits() == n, f"back in front within the hour: the servers are not asked again ({api_hits() - n} requests)")
         # the card's Update button opens the view with that piece ticked
         press(dlg(lst, CARD_INSTALL + 1))
         view = app.window(VIEW_CLASS)
@@ -1391,26 +1399,46 @@ def part_3_main_window():
     finally:
         app.close()
 
-    print("  -- the quiet check can be switched off")
-    for label, args, setting in (("--no-update-check", ["--no-update-check"], None), ("the setting 'Check for updates when the launcher starts' off", [], False)):
-        game, home = make_game("m_off", loader=True, authentic="0.167.0", unleashed="0.3.17")
-        if setting is not None:
-            home.mkdir(parents=True, exist_ok=True)
-            (home / "settings.json").write_text(json.dumps({"schema": "vrmod-launcher-settings/1", "game": "", "last_mod": "", "close_on_start": False, "check_updates_on_start": setting, "mods": {}}), encoding="utf-8")
-        n = api_hits()
-        app = App(["--game", game, "--home", home] + args, env_for(game))
-        try:
-            main = app.window(MAIN_CLASS)
-            time.sleep(3.0)
-            lst = dlg(main, M_LIST) if main else None
-            check(main is not None and api_hits() == n, f"{label}: the servers are not asked ({api_hits() - n} requests)")
-            check(lst and not dlg(lst, CARD_INSTALL), "...and no card has an Update button")
-            if setting is False:
-                check(not user32.SendMessageW(dlg(main, M_UPDATE_CHECK), BM_GETCHECK, 0, 0), "the box 'Check for updates when the launcher starts' is unticked")
-                user32.SendMessageW(dlg(main, M_UPDATE_CHECK), BM_CLICK, 0, 0)
-                check(wait_for(lambda: '"check_updates_on_start": true' in (home / "settings.json").read_text(encoding="utf-8").replace('":"', '": "'), 5), "ticking it is remembered in settings.json at once")
-        finally:
-            app.close()
+    print("  -- the player's case (launcher 0.3.2): Authentic 0.179.0 and Unleashed 0.3.24 installed, settings.json with the old box unticked;")
+    print("     the site has 0.180, GitHub only pre-releases up to 0.3.27: both cards say so, as the install view does")
+    reset_server()
+    set_auth(version="0.180")
+    set_gh("0.3.27", U319)
+    game, home = make_game("m_old_box_off", loader=True, authentic="0.179.0", unleashed="0.3.24")
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "settings.json").write_text(json.dumps({"schema": "vrmod-launcher-settings/1", "game": str(game).replace("\\", "/"), "last_mod": "d2r-vr", "close_on_start": False,
+                                                    "check_updates_on_start": False, "install_view_offered": True, "mods": {}}), encoding="utf-8")
+    base_hits = api_hits()
+    STATE["auth_queries"] = []
+    app = App(["--game", game, "--home", home], env_for(game))
+    try:
+        main = app.window(MAIN_CLASS)
+        check(main is not None, "the window opens")
+        if main:
+            lst = dlg(main, M_LIST)
+            check(wait_for(lambda: dlg(lst, CARD_INSTALL) and wtext(dlg(lst, CARD_INSTALL)) == "Update" and dlg(lst, CARD_INSTALL + 1) and wtext(dlg(lst, CARD_INSTALL + 1)) == "Update", 15),
+                  "the old box unticked: the window asks all the same, both cards get an Update button")
+            check(api_hits() - base_hits == 2, f"...one request per source ({api_hits() - base_hits})")
+            check(any("product=d2r_vr" in q and "v=0.179.0" in q for q in STATE["auth_queries"]), f"...the site is told the installed version ({STATE['auth_queries']})")
+            log = wtext(dlg(main, M_LOG))
+            check("D2R VR Authentic: Update available: 0.179.0 -> 0.180.0" in log and "D2R VR Unleashed: Update available: 0.3.24 -> 0.3.27" in log, f"...the badges' words ({log[-250:]!r})")
+            check(not dlg(main, M_UPDATE_CHECK), "...and there is no box to untick any more")
+    finally:
+        app.close()
+
+    print("  -- --no-update-check (the test aid) keeps the window from asking")
+    reset_server()
+    game, home = make_game("m_off", loader=True, authentic="0.167.0", unleashed="0.3.17")
+    n = api_hits()
+    app = App(["--game", game, "--home", home, "--no-update-check"], env_for(game))
+    try:
+        main = app.window(MAIN_CLASS)
+        time.sleep(3.0)
+        lst = dlg(main, M_LIST) if main else None
+        check(main is not None and api_hits() == n, f"--no-update-check: the servers are not asked ({api_hits() - n} requests)")
+        check(lst and not dlg(lst, CARD_INSTALL), "...and no card has an Update button")
+    finally:
+        app.close()
 
     print("  -- a server that is down: quiet")
     game, home = make_game("m_down", loader=True, authentic="0.167.0", unleashed="0.3.17")

@@ -224,7 +224,7 @@ BM_CLICK, BM_GETCHECK, CB_GETCURSEL, CB_SETCURSEL, CB_GETLBTEXT, CB_GETLBTEXTLEN
 # the control ids of gui_window.cpp (its enum starts at 100); the cards' radio buttons are 1000 + n, their links 2000 + n, children of the list
 ID = dict(game_label=100, game_combo=101, game_browse=102, game_status=103, mods_label=104, mod_list=105, rt_label=106, rt_combo=107,
           rt_browse=108, rt_detail=109, close_check=110, play=111, play_reason=112, settings=113, logs=114, uninstall=115, about=116,
-          message=117, log=118, install_view=119, update_check=120)
+          message=117, log=118, install_view=119, update_check=120)     # update_check: the box of 0.3.0-0.3.5, gone since 0.3.6
 
 
 class Gui:
@@ -567,17 +567,18 @@ def main():
             check(gui.text("message") == "Choose a mod and press Play.", "the first message (%r)" % gui.text("message"))
             check(gui.enabled("play") and gui.text("play_reason") == "", "Play is on for the preselected Authentic")
             check(gui.radio_checked(0) and not gui.radio_checked(1), "Authentic's radio button is the checked one")
-            check(gui.tab_order() == [101, 102, 1000, 3001, 4000, 2000, 2001, 107, 111, 113, 110, 120, 119, 114, 116, 118],
-                  "Tab visits game folder, Browse, the checked card, the Install button of the card that is not installed, the Uninstall button of the installed one, the Website links, runtime, Play, the mod's Settings, the two checkboxes, Install / update mods, Logs, About, the log (%s)" % gui.tab_order())
+            check(gui.tab_order() == [101, 102, 1000, 3001, 4000, 2000, 2001, 107, 111, 113, 110, 119, 114, 116, 118],
+                  "Tab visits game folder, Browse, the checked card, the Install button of the card that is not installed, the Uninstall button of the installed one, the Website links, runtime, Play, the mod's Settings, the checkbox, Install / update mods, Logs, About, the log (%s)" % gui.tab_order())
             check(gui.tab_order("mod_list") == [1000, 3001, 4000, 2000, 2001], "the list gives Tab the checked radio button (the arrow keys move between the cards), the Install button and the Website links (%s)" % gui.tab_order("mod_list"))
             check(gui.text("install_view").replace("&", "") == "Install / update mods..." and gui.enabled("install_view"), "the button 'Install / update mods...' is there and on")
-            # the mod's settings button: named for the mod, as big as Play, right after it on the same row; the two checkboxes are below that row
+            # the mod's settings button: named for the mod, as big as Play, right after it on the same row; the checkbox is below that row
             check(gui.text("settings").replace("&", "") == "D2R VR Authentic Settings" and gui.enabled("settings"), "the mod's settings button says 'D2R VR Authentic Settings' and is on (%r)" % gui.text("settings"))
             pr, sr = gui.rect(gui.child("play")), gui.rect(gui.child("settings"))
             check(pr[3] - pr[1] == sr[3] - sr[1] and pr[1] == sr[1] and 0 < sr[0] - pr[2] <= 24 and sr[2] - sr[0] >= pr[2] - pr[0],
                   "...as high as Play, on its row, right after it, not narrower (Play %s, Settings %s)" % (pr, sr))
-            cr, ur, ir = gui.rect(gui.child("close_check")), gui.rect(gui.child("update_check")), gui.rect(gui.child("install_view"))
-            check(cr[1] >= pr[3] and ur[1] >= pr[3] and ir[1] > max(cr[3], ur[3]) - 1, "...the two checkboxes are under the Play row, above the row of small buttons (%s %s %s)" % (cr, ur, ir))
+            cr, ir = gui.rect(gui.child("close_check")), gui.rect(gui.child("install_view"))
+            check(cr[1] >= pr[3] and ir[1] > cr[3] - 1, "...the checkbox is under the Play row, above the row of small buttons (%s %s)" % (cr, ir))
+            check(not gui.child("update_check"), "no 'Check for updates when the launcher starts' box (0.3.6: the window always looks)")
             check(not [h for h in (gui.rect(gui.child("logs")), gui.rect(gui.child("about"))) if h[1] != ir[1]] and not gui.child("uninstall"), "...Logs and About stay on the bottom row; Settings and the old bottom-row Uninstall are not there")
             check(gui.text(3001, gui.child("mod_list")) == "Install" and "Website" in gui.text(2000, gui.child("mod_list")), "the card that is not installed says Install, the cards keep a Website link")
             gui.click_radio(1)

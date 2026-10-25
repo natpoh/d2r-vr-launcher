@@ -616,7 +616,7 @@ LauncherSettings LoadSettings(const fs::path& home) {
         s.game = j.get_string("game");
         s.last_mod = j.get_string("last_mod");
         s.close_on_start = j.get_bool("close_on_start");
-        s.check_updates_on_start = j.get_bool("check_updates_on_start", true);
+        // "check_updates_on_start" (0.3.0-0.3.5) is not read any more: the window always looks for updates
         s.install_view_offered = j.get_bool("install_view_offered");
         if (const Json* mods = j.find("mods"))
             for (const auto& kv : mods->members()) {
@@ -637,7 +637,6 @@ void SaveSettings(const fs::path& home, const LauncherSettings& s) {
     j.set("game", Json::String(s.game));
     j.set("last_mod", Json::String(s.last_mod));
     j.set("close_on_start", Json::Bool(s.close_on_start));
-    j.set("check_updates_on_start", Json::Bool(s.check_updates_on_start));
     j.set("install_view_offered", Json::Bool(s.install_view_offered));
     Json mods = Json::Object();
     for (const auto& kv : s.mods) {

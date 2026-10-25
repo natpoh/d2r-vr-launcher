@@ -158,7 +158,7 @@ enum : int {
     IDC_MODS_LABEL, IDC_MOD_LIST,
     IDC_RT_LABEL, IDC_RT_COMBO, IDC_RT_BROWSE, IDC_RT_DETAIL,
     IDC_CLOSE_CHECK, IDC_PLAY, IDC_PLAY_REASON, IDC_SETTINGS, IDC_LOGS, IDC_RESERVED_UNINSTALL /* was the bottom-row button: each installed card has its own now */, IDC_ABOUT,
-    IDC_MESSAGE, IDC_LOG, IDC_INSTALL_VIEW, IDC_UPDATE_CHECK,
+    IDC_MESSAGE, IDC_LOG, IDC_INSTALL_VIEW, IDC_RESERVED_UPDATE_CHECK /* was "Check for updates when the launcher starts": since 0.3.6 the window always looks */,
     IDC_CARD_RADIO = 1000,        // + the card's number
     IDC_CARD_LINK = 2000,         // the card's links: "Website" and its support place ("Discord" / "Support"), one SysLink
     IDC_CARD_INSTALL = 3000,      // the card's "Install" / "Update" button
@@ -171,10 +171,12 @@ constexpr UINT WM_APP_UPDATE = WM_APP + 4;     // lParam: UpdateNote*, the quiet
 constexpr UINT WM_APP_OPEN_INSTALL = WM_APP + 5;   // --install-view: open the install view now
 constexpr UINT WM_APP_OFFER = WM_APP + 6;      // first run: offer the install view
 constexpr UINT WM_APP_OPEN_CARD = WM_APP + 7;  // wParam: a card's Install / Update button was pressed (posted: its own click is over before the view opens)
+constexpr UINT WM_APP_UPDATE_AGAIN = WM_APP + 8;   // the quiet check is over and another game folder was chosen while it ran: ask again
 constexpr UINT_PTR kTimerPoll = 1;
 constexpr UINT_PTR kTimerShotGuard = 2;
 constexpr UINT kPollMs = 1500;
 constexpr ULONGLONG kStartGraceMs = 10000;     // after a start: no second Play until the game shows up (or this long)
+constexpr ULONGLONG kUpdateRecheckMs = 60ull * 60 * 1000;   // a window left open asks the servers again when it comes back to the front this long after the last look
 
 const wchar_t kMainClass[] = L"D2RVRLauncherWindow";
 const wchar_t kListClass[] = L"D2RVRLauncherModList";
@@ -290,7 +292,7 @@ private:
     void DoAbout();
     void OpenInstallView(const std::vector<Piece>& tick, bool explicitTick);
     void OnCardInstall(int cardIndex);
-    void StartUpdateCheck();
+    void StartUpdateCheck(bool now);      // now: whatever the last look was (another game folder); else at most once per kUpdateRecheckMs
     void OnUpdate(UpdateNote* note);
     void UpdateOffers();                  // a card gets (or loses) its Install / Update button and badge when the answers say so
     void OfferInstallView();
@@ -316,7 +318,7 @@ private:
     HBRUSH bg_brush_ = nullptr, white_brush_ = nullptr;
 
     HWND lbl_game_ = nullptr, cmb_game_ = nullptr, btn_game_browse_ = nullptr, st_game_ = nullptr, lbl_mods_ = nullptr, list_ = nullptr;
-    HWND lbl_rt_ = nullptr, cmb_rt_ = nullptr, btn_rt_browse_ = nullptr, st_rt_ = nullptr, chk_close_ = nullptr, chk_update_ = nullptr;
+    HWND lbl_rt_ = nullptr, cmb_rt_ = nullptr, btn_rt_browse_ = nullptr, st_rt_ = nullptr, chk_close_ = nullptr;
     HWND btn_play_ = nullptr, st_reason_ = nullptr, btn_installview_ = nullptr, btn_settings_ = nullptr, btn_logs_ = nullptr, btn_about_ = nullptr;
     HWND st_msg_ = nullptr, edt_log_ = nullptr, tooltip_ = nullptr;
 
@@ -341,8 +343,9 @@ private:
     unsigned loader_generation_ = 0;
     bool loader_done_ = true;
     bool in_install_view_ = false;
-    bool update_check_started_ = false;
+    ULONGLONG update_asked_at_ = 0;        // when the quiet check last asked the servers (0 = not yet)
     int update_pending_ = 0;               // answers of the quiet check still to come
+    bool update_again_ = false;            // another game folder was chosen while the servers were being asked: ask again for it
     int paints_ = 0;
     bool shot_requested_ = false;
     bool shot_done_ = false;
@@ -426,7 +429,6 @@ bool Window::Init() {
     FillGameCombo();
     FillRuntimeCombo();
     Button_SetCheck(chk_close_, model_.settings().close_on_start ? BST_CHECKED : BST_UNCHECKED);
-    Button_SetCheck(chk_update_, model_.settings().check_updates_on_start ? BST_CHECKED : BST_UNCHECKED);
     RebuildCards();
     UpdateGameLine();
     UpdateModUi();
@@ -446,7 +448,7 @@ bool Window::Init() {
     UpdateButtons();
     Layout();
     StartLoaderCheck();
-    StartUpdateCheck();
+    StartUpdateCheck(true);
     // the keyboard starts on Play when it can be pressed (Enter plays from anywhere), else on the game folder
     SetFocus(IsWindowEnabled(btn_play_) ? btn_play_ : IsWindowEnabled(cmb_game_) ? cmb_game_ : btn_game_browse_);
     SetTimer(hwnd_, kTimerPoll, kPollMs, nullptr);
@@ -501,7 +503,7 @@ void Window::ApplyFonts() {
     auto set = [&](HWND h, HFONT f) {
         if (h) SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(f), TRUE);
     };
-    for (HWND h : {lbl_game_, cmb_game_, btn_game_browse_, st_game_, lbl_mods_, lbl_rt_, cmb_rt_, btn_rt_browse_, st_rt_, chk_close_, chk_update_, st_reason_,
+    for (HWND h : {lbl_game_, cmb_game_, btn_game_browse_, st_game_, lbl_mods_, lbl_rt_, cmb_rt_, btn_rt_browse_, st_rt_, chk_close_, st_reason_,
                    btn_installview_, btn_settings_, btn_logs_, btn_about_, st_msg_, edt_log_})
         set(h, fonts_.ui);
     set(lbl_game_, fonts_.bold);
@@ -554,7 +556,6 @@ void Window::CreateControls() {
     btn_settings_ = Button(IDC_SETTINGS, L"&Settings", BS_OWNERDRAW);      // the mod's settings: as big as Play, right after it (and so right after it in the Tab order)
     st_reason_ = Static(IDC_PLAY_REASON, L"", SS_NOPREFIX);
     chk_close_ = Button(IDC_CLOSE_CHECK, L"&Close the launcher when the game starts", BS_AUTOCHECKBOX);
-    chk_update_ = Button(IDC_UPDATE_CHECK, L"Chec&k for updates when the launcher starts", BS_AUTOCHECKBOX);
     btn_installview_ = Button(IDC_INSTALL_VIEW, L"&Install / update mods...");
     btn_logs_ = Button(IDC_LOGS, L"&Logs");
     btn_about_ = Button(IDC_ABOUT, L"&About");
@@ -1110,21 +1111,9 @@ void Window::Layout() {
         }
         set_w = std::min(set_w, std::max(play_w, w - play_w - S(10)));
     }
-    // why Play cannot be pressed (when it cannot) goes under the row, over the width; then the two checkboxes: on one line when both fit, else on two
+    // why Play cannot be pressed (when it cannot) goes under the row, over the width; then the checkbox
     const int reason_h = MeasureStatic(st_reason_, w);
-    int chk_w1 = 0, chk_w2 = 0;
-    if (HDC mdc = GetDC(hwnd_)) {
-        HGDIOBJ old = SelectObject(mdc, fonts_.ui);
-        const wchar_t* t1 = L"Close the launcher when the game starts";
-        const wchar_t* t2 = L"Check for updates when the launcher starts";
-        SIZE s1{}, s2{};
-        if (GetTextExtentPoint32W(mdc, t1, static_cast<int>(wcslen(t1)), &s1)) chk_w1 = static_cast<int>(s1.cx) + S(28);
-        if (GetTextExtentPoint32W(mdc, t2, static_cast<int>(wcslen(t2)), &s2)) chk_w2 = static_cast<int>(s2.cx) + S(28);
-        SelectObject(mdc, old);
-        ReleaseDC(hwnd_, mdc);
-    }
-    const bool checks_one_line = chk_w1 > 0 && chk_w2 > 0 && chk_w1 + S(20) + chk_w2 <= w;
-    const int checks_h = (checks_one_line ? 1 : 2) * check_h;
+    const int checks_h = check_h;
     const int play_row_h = play_h + S(6) + (reason_h ? reason_h + S(4) : 0) + checks_h;
     const int btn_h = combo_h + S(4);
     const int msg_h = std::min(MeasureStatic(st_msg_, w), line * 4);
@@ -1158,13 +1147,7 @@ void Window::Layout() {
     int cy = y + play_h + S(6);
     put(st_reason_, m, cy, w, reason_h);
     if (reason_h) cy += reason_h + S(4);
-    if (checks_one_line) {
-        put(chk_close_, m, cy, chk_w1, check_h);
-        put(chk_update_, m + chk_w1 + S(20), cy, chk_w2, check_h);
-    } else {
-        put(chk_close_, m, cy, w, check_h);
-        put(chk_update_, m, cy + check_h, w, check_h);
-    }
+    put(chk_close_, m, cy, w, check_h);
     y += play_row_h + S(10);
     int x = m;
     const int widths[] = {S(168), S(64), S(68)};
@@ -1348,13 +1331,6 @@ void Window::OnCommand(int id, int code, HWND from) {
                 SaveIfDirty();
             }
             break;
-        case IDC_UPDATE_CHECK:
-            if (code == BN_CLICKED) {
-                model_.settings().check_updates_on_start = Button_GetCheck(chk_update_) == BST_CHECKED;
-                dirty_ = true;
-                SaveIfDirty();
-            }
-            break;
         case IDC_INSTALL_VIEW:
             if (code == BN_CLICKED) OpenInstallView({}, false);
             break;
@@ -1392,6 +1368,7 @@ void Window::AfterGameChange() {
     grace_until_ = 0;
     UpdateButtons();
     StartLoaderCheck();
+    StartUpdateCheck(true);              // what is installed in this folder decides what counts as newer
     SayReady();
 }
 
@@ -1659,12 +1636,19 @@ void Window::UpdateOffers() {
         SetFocus(cards_[static_cast<size_t>(fid - IDC_CARD_RADIO)].radio_wnd);
 }
 
-// The quiet look at start: one request per source, in the background, once per launch. Nothing is shown when it fails.
-void Window::StartUpdateCheck() {
-    if (update_check_started_ || !model_.UpdateCheckWanted()) return;
-    // a screenshot run asks the internet only when a test server was named (VRML_ALLOW_HTTP_HOST): tests never use the real one
-    if (!opt_.screenshot.empty() && TestHttpHost(model_.services().env).empty()) return;
-    update_check_started_ = true;
+// The quiet look: one request per source, in the background - the same question the install view asks. Always at start (it is not a setting since 0.3.6:
+// a player who had unticked the old box saw no update on the cards while the install view showed them), again when another game folder is chosen, and when
+// a window left open comes back to the front an hour or more after the last look. Nothing is shown when it fails.
+void Window::StartUpdateCheck(bool now) {
+    if (!model_.UpdateCheckWanted()) return;
+    // a screenshot run asks the internet only when a test server was named (VRML_ALLOW_HTTP_HOST): tests never use the real one; and only once
+    if (!opt_.screenshot.empty() && (TestHttpHost(model_.services().env).empty() || update_asked_at_)) return;
+    if (update_pending_ > 0) {                          // the servers are being asked: the answers may be for the folder chosen before
+        update_again_ = update_again_ || now;
+        return;
+    }
+    if (!now && update_asked_at_ && GetTickCount64() - update_asked_at_ < kUpdateRecheckMs) return;
+    update_asked_at_ = GetTickCount64();
     update_pending_ = 2;                                // a screenshot waits for both answers
     struct Job {
         HWND target;
@@ -1695,6 +1679,10 @@ void Window::OnUpdate(UpdateNote* raw) {
     std::unique_ptr<UpdateNote> n(raw);
     const bool quiet = in_install_view_;               // the view is open: the cards are made again when it closes
     if (update_pending_ > 0) --update_pending_;
+    if (update_pending_ == 0 && update_again_) {        // another game folder was chosen meanwhile: ask for it (this answer still counts until then)
+        update_again_ = false;
+        PostMessageW(hwnd_, WM_APP_UPDATE_AGAIN, 0, 0);
+    }
     if (!n->info.checked) {
         model_.Log(std::string("update check: ") + PieceName(n->piece) + ": " + n->info.error);       // quiet: in the support log only
         MaybeShot();
@@ -1990,7 +1978,10 @@ LRESULT Window::OnMain(UINT m, WPARAM w, LPARAM l) {
             return 0;
 
         case WM_ACTIVATEAPP:
-            if (w) FullRefresh();            // came back from Explorer or an installer: the mods may have changed
+            if (w) {
+                FullRefresh();               // came back from Explorer or an installer: the mods may have changed
+                StartUpdateCheck(false);     // and left open for an hour or more: a release may have come out meanwhile
+            }
             return 0;
 
         case WM_APP_LOADER:
@@ -2020,6 +2011,9 @@ LRESULT Window::OnMain(UINT m, WPARAM w, LPARAM l) {
             return 0;
         case WM_APP_OFFER:
             OfferInstallView();
+            return 0;
+        case WM_APP_UPDATE_AGAIN:
+            StartUpdateCheck(true);
             return 0;
 
         case WM_CLOSE:

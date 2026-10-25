@@ -1,7 +1,7 @@
 # D2R VR Launcher
 
-**Download: [D2R_VR_Launcher_Setup_0.3.5.exe](https://github.com/natpoh/d2r-vr-launcher/raw/main/download/D2R_VR_Launcher_Setup_0.3.5.exe)** (Windows, 2.5 MB, per user, no admin prompt;
-SHA-256 `817F28907A5F801B288616C47CB8B748E24563D11733FA1F4884629AF450DA34`). Install it, pick a mod in the list and press **Play**: switching between the
+**Download: [D2R_VR_Launcher_Setup_0.3.6.exe](https://github.com/natpoh/d2r-vr-launcher/raw/main/download/D2R_VR_Launcher_Setup_0.3.6.exe)** (Windows, 2.5 MB, per user, no admin prompt;
+SHA-256 `BA5C4ABFDD7C63BBE84C8C98233BC63B4952151AC2BA8D4975708C9A573756C3`). Install it, pick a mod in the list and press **Play**: switching between the
 VR mods is one click. The D2R VR Authentic installer also carries it.
 
 A launcher for the two Diablo II: Resurrected VR mods — **D2R VR Authentic** (natpoh) and **D2R VR Unleashed** (bearstonem's d2r-pcvr) —
@@ -63,6 +63,11 @@ manifest's `support`, else the built-in profile's. A mod's install help - the ne
 shown in its install-view row and its card's tooltip while it is not installed. `tools/install_view_smoke.py` now waits for each row's own result with its own timeout (`rows_show`)
 instead of reading one row right after waiting for another.
 
+**The cards show updates again (0.3.6).** The main window asked the servers only while the box "Check for updates when the launcher starts" was ticked, so a player who had
+unticked it saw "Installed" on both cards while the install view said "Update available: 0.179.0 -> 0.180.0" and "0.3.24 -> 0.3.27 (pre-release)". The box is gone: the window
+always asks quietly (the same question as the install view: the site with the installed version, GitHub's list of releases with pre-releases), at start, when another game folder is
+chosen, and when it comes back to the front an hour or more after the last look. `check_updates_on_start` in an old `settings.json` is ignored and no longer written.
+
 ## The window: `D2RVRLauncher.exe`
 
 Plain Win32 and GDI+ (nothing to install; icon, pictures, manifest and version are in the exe). Built as the CMake target `d2rvrlauncher` on Windows.
@@ -82,8 +87,8 @@ unknown ([docs/MOD_MANIFEST.md](docs/MOD_MANIFEST.md)). **Each row has its own b
 *Up to date*), which ticks only that piece and installs at once, and *Uninstall* on an installed D2R VR mod (the mod's own uninstaller, as the card's button; D2RLoader has none: it is shared by every mod).
 *Install selected* (on only when something ticked is a real install or update) downloads, checks the hash and installs in turn (D2RLoader first; the two mods through their own Setups, which show their own wizards), with a bar, a step line and a log; *Cancel* stops at the next
 safe point (a Setup wizard that is open is the player's to finish or close). A release without a published checksum (today Authentic's) is installed only after a question whose default is No. A card whose mod has a newer
-release shows an amber "Update available: 0.167.0 -> 0.168.0" and an **Update** button (**Install** when the mod is not installed); the check is one request per source once per start, silent on failure, and the box
-"Check for updates when the launcher starts" (on by default) turns it off. On a first run with no VR mod the view is offered once; the launcher's own Setup offers it on its finish page. All of it, with the pictures
+release shows an amber "Update available: 0.167.0 -> 0.168.0" and an **Update** button (**Install** when the mod is not installed); the check is the install view's own question, one request per
+source, silent on failure, made at every start, when another game folder is chosen and when a window left open comes back to the front an hour after the last look (since 0.3.6 there is no box to switch it off). On a first run with no VR mod the view is offered once; the launcher's own Setup offers it on its finish page. All of it, with the pictures
 `docs/screens/install_view_100pct.png` (a fresh game), `install_view_installed_current_100pct.png`, `install_view_update_available_100pct.png`, `install_view_plugin_version_100pct.png`, `install_view_result_100pct.png` and
 `launcher_update_badges_100pct.png`: [docs/INSTALL_PATH.md](docs/INSTALL_PATH.md), "The window".
 

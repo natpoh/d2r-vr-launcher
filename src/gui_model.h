@@ -130,7 +130,8 @@ public:
     UninstallOffer UninstallFor(const ModEntry& m) const;
     // Why "Uninstall" is refused right now ("" = it may go on): the game runs, or there is no game folder.
     std::string UninstallRefusal() const;
-    // The quiet look at start: the setting is on, there is a game folder, and --no-update-check was not given.
+    // The quiet look at the newest releases (at start, on another game folder, back in front after an hour): there is a game folder and --no-update-check was
+    // not given. Not a setting since 0.3.6 (the install view asks every time anyway).
     bool UpdateCheckWanted() const;
     // First run: a game folder was found (not given with --game), none of the two VR mods is installed, and the install view was not offered before.
     bool ShouldOfferInstallView() const;

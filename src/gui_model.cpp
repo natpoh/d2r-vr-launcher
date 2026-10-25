@@ -155,7 +155,7 @@ const char* UsageText() {
     return "D2RVRLauncher [--game DIR] [--home DIR] [--select MOD_ID] [--install-view] [--dry-run] [--play] [--screenshot FILE.png] [--dpi N]\n"
            "  --install-view     open the install view (D2RLoader and the two mods: what is installed, what is newer, install / update) right after start\n"
            "  --install-tick L   with it (and what a card's Install / Update button does): tick these pieces: loader, authentic, unleashed (comma separated)\n"
-           "  --no-update-check  do not look at the newest releases at start (the \"Check for updates when the launcher starts\" setting, for this run)\n"
+           "  --no-update-check  do not look at the newest releases by itself (a test aid; the install view still asks when it opens)\n"
            "  --game DIR         use this game folder (the remembered one is left alone)\n"
            "  --home DIR         the launcher's own folder (settings.json, logs); default %LOCALAPPDATA%\\VRModLauncher\n"
            "  --select MOD_ID    preselect this mod (d2r-vr, d2r-pcvr, or the folder name of another D2RLoader mod)\n"
@@ -394,7 +394,7 @@ std::string Model::UninstallRefusal() const {
 
 bool Model::UpdateCheckWanted() const {
     const GameChoice* g = game();
-    return settings_.check_updates_on_start && g && g->is_game && !opt_.no_update_check;
+    return g && g->is_game && !opt_.no_update_check;
 }
 
 bool Model::ShouldOfferInstallView() const {

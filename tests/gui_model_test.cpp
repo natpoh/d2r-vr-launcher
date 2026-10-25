@@ -410,23 +410,27 @@ TEST(test_switches_that_reach_a_server_need_the_loopback_switch) {
     CHECK(TestSwitchProblems(ParseOptions({"--install-view", "--screenshot", "x.png", "--shot-now"}), {}).empty());     // nothing here reaches a server by itself
 }
 
-TEST(the_settings_remember_the_update_check_and_the_first_run_offer) {
+TEST(the_settings_remember_the_first_run_offer_and_drop_the_old_update_box) {
     tt::Sandbox sb;
     LauncherSettings d;
-    CHECK(d.check_updates_on_start);                          // on by default
     CHECK(!d.install_view_offered);
-    CHECK(LoadSettings(sb.home).check_updates_on_start);       // no file: the defaults
+    CHECK(!LoadSettings(sb.home).install_view_offered);        // no file: the defaults
     LauncherSettings s;
-    s.check_updates_on_start = false;
     s.install_view_offered = true;
     SaveSettings(sb.home, s);
     const LauncherSettings back = LoadSettings(sb.home);
-    CHECK(!back.check_updates_on_start);
     CHECK(back.install_view_offered);
-    // a file from before these settings existed: the update check is on
+    std::string text;
+    REQUIRE(ReadFile(sb.home / "settings.json", &text));
+    CHECK(text.find("check_updates_on_start") == std::string::npos);      // 0.3.6: no such setting is written any more
+    // a file from before these settings existed
     tt::Write(sb.home / "settings.json", R"({"schema":"vrmod-launcher-settings/1","game":"","last_mod":"d2r-vr","close_on_start":true,"mods":{}})");
     const LauncherSettings old = LoadSettings(sb.home);
-    CHECK(old.check_updates_on_start && !old.install_view_offered && old.close_on_start);
+    CHECK(!old.install_view_offered && old.close_on_start);
+    // a file of 0.3.0-0.3.5 with the old box unticked (the player's own case): read without trouble, the rest kept
+    tt::Write(sb.home / "settings.json", R"({"schema":"vrmod-launcher-settings/1","game":"D:/g","last_mod":"d2r-vr","close_on_start":false,"check_updates_on_start":false,"install_view_offered":true,"mods":{}})");
+    const LauncherSettings b035 = LoadSettings(sb.home);
+    CHECK(b035.install_view_offered && b035.game == "D:/g" && b035.last_mod == "d2r-vr");
 }
 
 namespace {
@@ -503,18 +507,15 @@ TEST(the_quiet_check_at_start_and_the_first_run_offer_follow_the_settings) {
     Rig r;
     {
         Model m = r.Make();
-        CHECK(m.UpdateCheckWanted());                      // on by default
+        CHECK(m.UpdateCheckWanted());                      // always, with a game folder
         CHECK(!m.ShouldOfferInstallView());                // the folder was given with --game: no offer
     }
     r.opt.no_update_check = true;
     CHECK(!r.Make().UpdateCheckWanted());
     r.opt.no_update_check = false;
-    LauncherSettings s;
-    s.check_updates_on_start = false;
-    SaveSettings(r.sb.home, s);
-    CHECK(!r.Make().UpdateCheckWanted());
-    s.check_updates_on_start = true;
-    SaveSettings(r.sb.home, s);
+    // the settings of 0.3.0-0.3.5 with "Check for updates when the launcher starts" unticked: the window looks all the same (the player saw updates only
+    // in the install view)
+    tt::Write(r.sb.home / "settings.json", R"({"schema":"vrmod-launcher-settings/1","game":"","last_mod":"d2r-vr","close_on_start":false,"check_updates_on_start":false,"mods":{}})");
     CHECK(r.Make().UpdateCheckWanted());
     // no game, nothing to look for
     r.opt.game = U(r.sb.root / "nothing");
