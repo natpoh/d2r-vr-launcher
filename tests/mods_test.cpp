@@ -123,7 +123,7 @@ TEST(the_builtin_profiles_carry_the_support_links_and_unleashed_install_help) {
     const ModEntry* vr = Find(mods, "d2r-vr");
     REQUIRE(pcvr && vr);
     CHECK_EQ(pcvr->support, std::string("https://discord.gg/DmbFfJAnnm"));
-    CHECK_EQ(vr->support, std::string("https://discord.gg/kVYjEdJx3e"));
+    CHECK_EQ(vr->support, std::string("https://discord.gg/7PHp8n6v9z"));
     // the whole text, its ';' included (CMake embeds the profile: file(READ) and configure_file keep it)
     CHECK_EQ(pcvr->install_help, std::string(
         "Install Unleashed through the shared launcher or download our Windows Setup from https://github.com/bearstonem/d2r-pcvr/releases. "

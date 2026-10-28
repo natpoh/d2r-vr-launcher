@@ -686,7 +686,7 @@ TEST(a_card_links_its_website_and_its_support_place_and_a_missing_mod_shows_its_
     REQUIRE(l.size() == 2);
     CHECK_EQ(l[0].url, std::string("https://bodywalkvr.com/mods/d2r-vr"));
     CHECK_EQ(l[1].label, std::string("Discord"));
-    CHECK_EQ(l[1].url, std::string("https://discord.gg/kVYjEdJx3e"));
+    CHECK_EQ(l[1].url, std::string("https://discord.gg/7PHp8n6v9z"));
     // another support place is "Support"; a link that is not http(s) or repeats the website is not shown; another D2RLoader mod has no links
     ModEntry e = *vr;
     e.support = "https://github.com/natpoh/d2r-vr/issues";
@@ -698,7 +698,7 @@ TEST(a_card_links_its_website_and_its_support_place_and_a_missing_mod_shows_its_
     e.support = e.homepage;
     CHECK_EQ(CardLinks(e).size(), size_t(1));
     e.homepage = "";
-    e.support = "https://discord.gg/kVYjEdJx3e";
+    e.support = "https://discord.gg/7PHp8n6v9z";
     REQUIRE(CardLinks(e).size() == 1);
     CHECK_EQ(CardLinks(e)[0].label, std::string("Discord"));
     e.known = false;

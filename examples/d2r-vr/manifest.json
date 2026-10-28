@@ -6,7 +6,7 @@
   "edition": "full",
   "publisher": "natpoh",
   "homepage": "https://bodywalkvr.com/mods/d2r-vr",
-  "support": "https://discord.gg/kVYjEdJx3e",
+  "support": "https://discord.gg/7PHp8n6v9z",
   "license": "MIT",
   "description": "Diablo II: Resurrected in a VR headset: native OpenXR, or BodyWalk + FlatVR.",
   "build": { "commit": "<set by the build>", "date": "<set by the build>", "channel": "release" },

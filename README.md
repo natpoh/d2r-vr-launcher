@@ -58,7 +58,7 @@ again" with OK and **Start anyway**; the command line fails with `E_FIRST_START`
 
 **After bearstonem's review (0.3.5).** *System default* now means the runtime Windows has set: an `XR_RUNTIME_JSON` inherited from the launcher's own environment (setx, a wrapper)
 is taken out of the game's environment (`env - XR_RUNTIME_JSON` in the plan; the window and `vrmodlauncher launch --runtime system` alike), and any other runtime choice still sets it.
-Each known mod's card has its support link next to **Website** - **Discord** for both (Authentic https://discord.gg/kVYjEdJx3e, Unleashed https://discord.gg/DmbFfJAnnm), from the
+Each known mod's card has its support link next to **Website** - **Discord** for both (Authentic https://discord.gg/7PHp8n6v9z, Unleashed https://discord.gg/DmbFfJAnnm), from the
 manifest's `support`, else the built-in profile's. A mod's install help - the new optional manifest key `install_help`, else the built-in profile's (Unleashed carries bearstonem's text) - is
 shown in its install-view row and its card's tooltip while it is not installed. `tools/install_view_smoke.py` now waits for each row's own result with its own timeout (`rows_show`)
 instead of reading one row right after waiting for another.
