@@ -14,7 +14,15 @@ namespace {
 constexpr size_t kMaxNotes = 20000;
 constexpr uint64_t kMaxJson = 4ull << 20;           // GitHub's answer for 5 releases is about 50 KB; 4 MB is a limit, not a size
 
-const char* const kGithubRepoPath = "/bearstonem/d2r-pcvr/releases/download/";
+const char* const kAuthenticRepo = "natpoh/diablo2-vr-port";
+const char* const kUnleashedRepo = "bearstonem/d2r-pcvr";
+
+// the repository whose release assets a mod's installer may be; "" = none
+std::string GithubRepoFor(const std::string& id) {
+    if (id == "d2r-vr") return kAuthenticRepo;
+    if (id == "d2r-pcvr") return kUnleashedRepo;
+    return "";
+}
 
 std::string Cut(const std::string& s) { return s.size() <= kMaxNotes ? s : s.substr(0, kMaxNotes) + "\n(cut)"; }
 
@@ -40,9 +48,9 @@ Json ParseOrThrow(const std::string& text, const char* what) {
     }
 }
 
-// "D2R-PCVR-Setup-0.3.19.exe" -> "0.3.19"
-bool SetupAssetVersion(const std::string& name, std::string* ver) {
-    const std::string pre = "D2R-PCVR-Setup-", post = ".exe";
+// "D2R-PCVR-Setup-0.3.19.exe" with pre "D2R-PCVR-Setup-" -> "0.3.19"; "D2R_VR_Setup_v0.188.0.exe" with "D2R_VR_Setup_v" -> "0.188.0"
+bool SetupAssetVersion(const std::string& name, const std::string& pre, std::string* ver) {
+    const std::string post = ".exe";
     if (!StartsWith(name, pre) || !EndsWith(name, post) || name.size() <= pre.size() + post.size()) return false;
     const std::string mid = name.substr(pre.size(), name.size() - pre.size() - post.size());
     bool lastDot = true;
@@ -86,6 +94,62 @@ bool ParseHashFile(const std::string& body, const std::string& assetName, std::s
 
 std::string LowerHex(const std::string& s) { return Lower(s); }
 
+// "v*" against "v0.188.0": '*' is any run of characters; an empty pattern matches every tag
+bool TagMatches(const std::string& tag, const std::string& glob) {
+    if (glob.empty()) return true;
+    size_t t = 0, g = 0, star = std::string::npos, mark = 0;
+    while (t < tag.size()) {
+        if (g < glob.size() && glob[g] == '*') {
+            star = g++;
+            mark = t;
+        } else if (g < glob.size() && glob[g] == tag[t]) {
+            ++g;
+            ++t;
+        } else if (star != std::string::npos) {
+            g = star + 1;
+            t = ++mark;
+        } else {
+            return false;
+        }
+    }
+    while (g < glob.size() && glob[g] == '*') ++g;
+    return g == glob.size();
+}
+
+std::string Trim(std::string s) {
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) s.pop_back();
+    size_t i = 0;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+    return s.substr(i);
+}
+
+// An ini value read as GetPrivateProfileInt reads it (what D2R VR Authentic Settings does): its leading digits, anything after them ignored;
+// 0 when the key is not there or has no number.
+long IniInt(const std::string& text, const std::string& section, const std::string& key) {
+    std::string cur;
+    size_t at = StartsWith(text, "\xEF\xBB\xBF") ? 3 : 0;
+    while (at < text.size()) {
+        size_t end = text.find('\n', at);
+        if (end == std::string::npos) end = text.size();
+        const std::string line = Trim(text.substr(at, end - at));
+        at = end + 1;
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+        if (line[0] == '[') {
+            const size_t close = line.find(']');
+            cur = close == std::string::npos ? std::string() : Lower(Trim(line.substr(1, close - 1)));
+            continue;
+        }
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos || cur != Lower(section) || Lower(Trim(line.substr(0, eq))) != Lower(key)) continue;
+        const std::string v = Trim(line.substr(eq + 1));
+        long n = 0;
+        size_t d = !v.empty() && (v[0] == '-' || v[0] == '+') ? 1 : 0;
+        for (; d < v.size() && std::isdigit(static_cast<unsigned char>(v[d])) && n < 100000000; ++d) n = n * 10 + (v[d] - '0');
+        return !v.empty() && v[0] == '-' ? -n : n;
+    }
+    return 0;
+}
+
 }  // namespace
 
 ReleaseSources::ReleaseSources() : test_http_host(TestHttpHostFromProcessEnv()) {}
@@ -123,9 +187,18 @@ bool IsNewer(const std::string& a, const std::string& b) {
 }
 
 std::vector<std::string> DownloadHostsFor(const std::string& id) {
-    if (id == "d2r-vr") return {"bodywalkvr.com"};
+    if (id == "d2r-vr") return {"bodywalkvr.com", "github.com", "*.githubusercontent.com"};
     if (id == "d2r-pcvr") return {"github.com", "*.githubusercontent.com"};
     return {};
+}
+
+std::vector<std::string> DownloadHostsFor(const Release& r) {
+    // Authentic is in both places: an installer on bodywalkvr.com stays there, one on GitHub may be redirected to GitHub's file host only
+    if (r.id == "d2r-vr") {
+        if (ParseUrl(r.url).host == "bodywalkvr.com") return {"bodywalkvr.com"};
+        return {"github.com", "*.githubusercontent.com"};
+    }
+    return DownloadHostsFor(r.id);
 }
 
 bool ReleaseUrlOk(const Release& r, const std::string& testHttpHost, std::string* why) {
@@ -135,12 +208,14 @@ bool ReleaseUrlOk(const Release& r, const std::string& testHttpHost, std::string
     };
     if (r.url.empty()) return no("there is no installer address");
     std::string w;
-    if (!UrlAllowed(r.url, DownloadHostsFor(r.id), testHttpHost, &w)) return no(w);
+    if (!UrlAllowed(r.url, DownloadHostsFor(r), testHttpHost, &w)) return no(w);
     if (!SafeInstallerName(r.asset_name)) return no("\"" + r.asset_name + "\" is not a plain installer file name");
     const UrlParts u = ParseUrl(r.url);
-    // the listed address is on github.com itself (the CDN hosts are only where GitHub may redirect it to) and inside the repository's releases
-    if (r.id == "d2r-pcvr" && u.scheme == "https" && (u.host != "github.com" || !StartsWith(u.path, kGithubRepoPath)))
-        return no("the installer is not a release asset of github.com/bearstonem/d2r-pcvr");
+    // a GitHub address is on github.com itself (the CDN hosts are only where GitHub may redirect it to) and inside the mod's own repository's releases
+    const std::string repo = GithubRepoFor(r.id);
+    const bool onOurSite = r.id == "d2r-vr" && u.host == "bodywalkvr.com";
+    if (!repo.empty() && !onOurSite && u.scheme == "https" && (u.host != "github.com" || !StartsWith(u.path, "/" + repo + "/releases/download/")))
+        return no("the installer is not a release asset of github.com/" + repo);
     return true;
 }
 
@@ -168,7 +243,7 @@ Release ParseAuthenticAnswer(const std::string& text, const std::string& current
     r.url = j.get_string("download_url");
     std::string why;
     if (r.url.empty()) Throw("E_IO", "the answer about the newest D2R VR Authentic has no download address");
-    if (!UrlAllowed(r.url, DownloadHostsFor("d2r-vr"), src.test_http_host, &why))
+    if (!UrlAllowed(r.url, {"bodywalkvr.com"}, src.test_http_host, &why))
         Throw("E_UNTRUSTED", "the download address D2R VR Authentic's server gave is refused: " + why);
     r.asset_name = LastSegment(r.url);
     if (!SafeInstallerName(r.asset_name)) Throw("E_UNTRUSTED", "the download address D2R VR Authentic's server gave does not end in a plain installer name (\"" + r.asset_name + "\")");
@@ -184,7 +259,7 @@ Release ParseAuthenticAnswer(const std::string& text, const std::string& current
     return r;
 }
 
-Release LatestAuthentic(HttpClient& http, const std::string& current, const ReleaseSources& src) {
+Release LatestAuthenticSite(HttpClient& http, const std::string& current, const ReleaseSources& src) {
     const std::string v = NormalizeVersion(current).empty() ? "0.0.0" : NormalizeVersion(current);
     const std::string url = src.authentic_api + (src.authentic_api.find('?') == std::string::npos ? "?" : "&") + "product=d2r_vr&v=" + v;
     std::string body, err;
@@ -192,26 +267,91 @@ Release LatestAuthentic(HttpClient& http, const std::string& current, const Rele
     return ParseAuthenticAnswer(body, current, src);
 }
 
-// ------------------------------------------------------------------ Unleashed
+Release LatestAuthentic(HttpClient& http, const std::string& current, const ReleaseSources& src) {
+    // GitHub first; bodywalkvr.com when GitHub cannot be asked or lists no installer for this channel (yet). An answer GitHub gave and the
+    // launcher refused (E_UNTRUSTED, E_HASH) is reported as it is: the site does not paper over it.
+    std::string githubProblem, body, err;
+    if (src.authentic_github_api.empty()) {
+        githubProblem = "not asked";
+    } else if (!http.GetText(src.authentic_github_api, &body, &err)) {
+        githubProblem = "could not ask GitHub (" + err + ")";
+    } else {
+        try {
+            return ParseGithubReleases(body, AuthenticGithub(src.develop), current, &http, src);
+        } catch (const Error& e) {
+            if (e.code != "E_NOT_FOUND" && e.code != "E_IO") throw;
+            githubProblem = e.what();
+        }
+    }
+    Release r;
+    try {
+        r = LatestAuthenticSite(http, current, src);
+    } catch (const Error& e) {
+        Throw(e.code, std::string(e.what()) + "; GitHub: " + githubProblem);
+    }
+    if (!src.authentic_github_api.empty()) r.warnings.push_back("GitHub: " + githubProblem + "; bodywalkvr.com's answer is used");
+    return r;
+}
 
-Release ParseUnleashedAnswer(const std::string& text, const std::string& current, HttpClient* http, const ReleaseSources& src) {
-    const Json root = ParseOrThrow(text, "the newest D2R VR Unleashed");
-    if (!root.is_array()) Throw("E_IO", "GitHub's answer about the newest D2R VR Unleashed is not a list of releases");
+bool AuthenticDevelopWanted(const fs::path& game) {
+    if (game.empty()) return false;
+    const fs::path inis[] = {game / "mods" / "D2R-VR" / "d2rloader" / "plugins" / "d2r_vr.ini", game / "d2rloader" / "plugins" / "d2r_vr.ini"};
+    for (const fs::path& ini : inis) {
+        std::string text;
+        if (IsFile(ini) && ReadFile(ini, &text)) return IniInt(text, "update", "develop") != 0;
+    }
+    return false;
+}
+
+// ------------------------------------------------------------------ GitHub releases (Unleashed; Authentic since 0.3.7)
+
+GithubSource AuthenticGithub(bool develop) {
+    GithubSource g;
+    g.id = "d2r-vr";
+    g.name = "D2R VR Authentic";
+    g.repo = kAuthenticRepo;
+    g.asset_prefix = "D2R_VR_Setup_v";
+    g.tag_glob = "v*";
+    g.prereleases = develop;
+    g.require_hash = true;
+    return g;
+}
+
+GithubSource UnleashedGithub() {
+    GithubSource g;
+    g.id = "d2r-pcvr";
+    g.name = "D2R VR Unleashed";
+    g.repo = kUnleashedRepo;
+    g.asset_prefix = "D2R-PCVR-Setup-";
+    return g;
+}
+
+Release ParseGithubReleases(const std::string& text, const GithubSource& g, const std::string& current, HttpClient* http, const ReleaseSources& src) {
+    const Json root = ParseOrThrow(text, ("the newest " + g.name).c_str());
+    if (!root.is_array()) Throw("E_IO", "GitHub's answer about the newest " + g.name + " is not a list of releases");
     struct Cand { const Json* rel; const Json* asset; std::string ver; std::string published; };
     std::vector<Cand> cands;
+    bool skippedPre = false;
     for (const Json& rel : root.items()) {
         if (!rel.is_object() || rel.get_bool("draft")) continue;
+        if (!TagMatches(rel.get_string("tag_name"), g.tag_glob)) continue;
         const Json* assets = rel.find("assets");
         if (!assets || !assets->is_array()) continue;
         for (const Json& a : assets->items()) {
             std::string ver;
-            if (!a.is_object() || !SetupAssetVersion(a.get_string("name"), &ver)) continue;
+            if (!a.is_object() || !SetupAssetVersion(a.get_string("name"), g.asset_prefix, &ver)) continue;
             const std::string state = a.get_string("state", "uploaded");
             if (state != "uploaded") continue;
+            if (!g.prereleases && rel.get_bool("prerelease")) {     // a develop build, and the player did not ask for those
+                skippedPre = true;
+                continue;
+            }
             cands.push_back({&rel, &a, NormalizeVersion(ver), rel.get_string("published_at")});
         }
     }
-    if (cands.empty()) Throw("E_NOT_FOUND", "no release of D2R VR Unleashed with an installer (D2R-PCVR-Setup-<version>.exe) was found");
+    if (cands.empty())
+        Throw("E_NOT_FOUND", "no release of " + g.name + " with an installer (" + g.asset_prefix + "<version>.exe) was found" +
+                                 (skippedPre ? " (its pre-releases are develop builds: they count only when develop builds are asked for)" : ""));
     const Cand* best = &cands[0];
     for (const Cand& c : cands) {
         const int cmp = CompareVersions(c.ver, best->ver);
@@ -219,8 +359,8 @@ Release ParseUnleashedAnswer(const std::string& text, const std::string& current
     }
 
     Release r;
-    r.id = "d2r-pcvr";
-    r.source = "github.com/bearstonem/d2r-pcvr";
+    r.id = g.id;
+    r.source = "github.com/" + g.repo;
     r.current = NormalizeVersion(current);
     r.version = best->ver;
     r.announced = best->ver;
@@ -238,7 +378,7 @@ Release ParseUnleashedAnswer(const std::string& text, const std::string& current
         if (!ReleaseUrlOk(probe, src.test_http_host, &why)) Throw("E_UNTRUSTED", "the installer address in GitHub's answer is refused: " + why);
     }
 
-    // the checksum: GitHub's own `digest` of the asset, and/or the .sha256 file Bear publishes next to it
+    // the checksum: GitHub's own `digest` of the asset, and/or the .sha256 file published next to it
     std::string apiHash;
     const std::string digest = best->asset->get_string("digest");
     if (StartsWith(Lower(digest), "sha256:")) {
@@ -252,7 +392,7 @@ Release ParseUnleashedAnswer(const std::string& text, const std::string& current
         if (a.get_string("name") != r.asset_name + ".sha256") continue;
         const std::string url = a.get_string("browser_download_url");
         Release probe;
-        probe.id = "d2r-pcvr";
+        probe.id = g.id;
         probe.url = url;
         probe.asset_name = "x.exe";
         std::string why;
@@ -280,8 +420,14 @@ Release ParseUnleashedAnswer(const std::string& text, const std::string& current
     } else if (!fileHash.empty()) {
         r.sha256 = fileHash;
         r.sha256_source = ".sha256 file";
+    } else if (g.require_hash) {
+        Throw("E_UNTRUSTED", "GitHub lists no SHA-256 for " + r.asset_name + " (no digest, no usable .sha256 file); refusing this release");
     }
     return r;
+}
+
+Release ParseUnleashedAnswer(const std::string& text, const std::string& current, HttpClient* http, const ReleaseSources& src) {
+    return ParseGithubReleases(text, UnleashedGithub(), current, http, src);
 }
 
 Release LatestUnleashed(HttpClient& http, const std::string& current, const ReleaseSources& src) {
@@ -309,9 +455,11 @@ UpdateInfo CheckUpdate(HttpClient& http, const fs::path& game, const std::string
                 u.installed_version = e.installed ? NormalizeVersion(e.found_version) : "";
             }
     }
+    ReleaseSources s = src;
+    if (id == "d2r-vr" && AuthenticDevelopWanted(game)) s.develop = true;
     try {
-        if (id == "d2r-vr") u.latest = LatestAuthentic(http, u.installed_version, src);
-        else if (id == "d2r-pcvr") u.latest = LatestUnleashed(http, u.installed_version, src);
+        if (id == "d2r-vr") u.latest = LatestAuthentic(http, u.installed_version, s);
+        else if (id == "d2r-pcvr") u.latest = LatestUnleashed(http, u.installed_version, s);
         else Throw("E_USAGE", "unknown mod \"" + id + "\"");
         u.checked = true;
         u.update_available = u.installed && !u.latest.up_to_date && (u.installed_version.empty() || IsNewer(u.latest.version, u.installed_version));

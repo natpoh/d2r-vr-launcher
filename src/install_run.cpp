@@ -166,7 +166,8 @@ private:
 
     Release Lookup(Piece mod, bool force) {
         const std::string id = PieceId(mod);
-        const ReleaseSources src = ReleaseSourcesFor(ctx_.env->env);
+        ReleaseSources src = ReleaseSourcesFor(ctx_.env->env);
+        if (mod == Piece::Authentic) src.develop = AuthenticDevelopWanted(ctx_.game);
         std::unique_ptr<HttpClient> holder;
         HttpClient* http = ctx_.env->http;
         if (!http) {
@@ -341,6 +342,10 @@ ReleaseSources ReleaseSourcesFor(const std::map<std::string, std::string>& env) 
     if (!s.test_http_host.empty()) {                    // the test addresses count only together with the loopback switch
         std::string v = EnvGet(env, "VRML_URL_AUTHENTIC_API");
         if (!v.empty()) s.authentic_api = v;
+        // a test that names its own site but no GitHub list asks the site alone: never the real api.github.com behind its back
+        const std::string gh = EnvGet(env, "VRML_URL_AUTHENTIC_GITHUB_API");
+        if (!gh.empty()) s.authentic_github_api = gh;
+        else if (!v.empty()) s.authentic_github_api.clear();
         v = EnvGet(env, "VRML_URL_UNLEASHED_API");
         if (!v.empty()) s.unleashed_api = v;
     }
@@ -349,7 +354,9 @@ ReleaseSources ReleaseSourcesFor(const std::map<std::string, std::string>& env) 
 
 HttpOptions HttpOptionsForQuestion(Piece mod, const std::map<std::string, std::string>& env) {
     HttpOptions o;
-    o.allow_hosts = mod == Piece::Authentic ? std::vector<std::string>{"bodywalkvr.com"} : std::vector<std::string>{"api.github.com", "github.com", "*.githubusercontent.com"};
+    // Authentic: GitHub (the release list, its .sha256 asset) and bodywalkvr.com (when GitHub has nothing)
+    o.allow_hosts = mod == Piece::Authentic ? std::vector<std::string>{"api.github.com", "github.com", "*.githubusercontent.com", "bodywalkvr.com"}
+                                            : std::vector<std::string>{"api.github.com", "github.com", "*.githubusercontent.com"};
     o.allow_http_host = TestHost(env);
     o.max_bytes = 4ull << 20;
     return o;

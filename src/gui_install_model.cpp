@@ -313,7 +313,7 @@ std::vector<InstallRow> InstallModel::Rows() const {
             if (Outdated(p)) r.badge = UpdateBadgeText(d.installed_version, L.version);
             const bool known = d.check == CheckState::Done && !L.up_to_date;
             if (p == Piece::Authentic) {
-                r.source = "bodywalkvr.com";
+                r.source = L.source == "bodywalkvr.com" ? std::string("bodywalkvr.com") : std::string("GitHub release of natpoh/diablo2-vr-port");
                 if (known) r.source += L.sha256.empty() ? " - no checksum published yet" : " - checksum published";
                 r.how = "Its own Setup opens in a window; Windows asks for administrator rights first.";
             } else {
@@ -442,7 +442,7 @@ std::vector<UnverifiedItem> InstallModel::UnverifiedTicked() const {
         UnverifiedItem it;
         it.piece = m;
         it.version = d.upd.latest.up_to_date ? d.installed_version : d.upd.latest.version;
-        it.source = d.upd.latest.source.empty() ? (m == Piece::Authentic ? "bodywalkvr.com" : "github.com/bearstonem/d2r-pcvr") : d.upd.latest.source;
+        it.source = d.upd.latest.source.empty() ? (m == Piece::Authentic ? "github.com/natpoh/diablo2-vr-port" : "github.com/bearstonem/d2r-pcvr") : d.upd.latest.source;
         items.push_back(it);
     }
     return items;

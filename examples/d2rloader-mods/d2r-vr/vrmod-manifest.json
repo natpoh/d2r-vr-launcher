@@ -132,9 +132,10 @@
     "{game}/ReShade.log"
   ],
   "update": {
-    "kind": "http-json",
-    "url": "https://bodywalkvr.com/api/version?product=d2r_vr",
-    "opens": "homepage"
+    "kind": "github-release",
+    "repo": "natpoh/diablo2-vr-port",
+    "tag": "v*",
+    "x-note": "Releases marked pre-release are develop builds: offered only with [update] develop=1 in d2r_vr.ini. Assets D2R_VR_Setup_v<version>.exe + .exe.sha256. The same builds stay on https://bodywalkvr.com/api/version?product=d2r_vr for older launchers and Settings."
   },
   "uninstall": {
     "exe": "{game}/unins000.exe",

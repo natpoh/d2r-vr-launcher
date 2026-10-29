@@ -1,0 +1,93 @@
+[
+  {
+    "url": "https://api.github.com/repos/natpoh/diablo2-vr-port/releases/500000004",
+    "html_url": "https://github.com/natpoh/diablo2-vr-port/releases/tag/v0.190.0",
+    "id": 500000004,
+    "tag_name": "v0.190.0",
+    "name": "D2R VR Authentic 0.190 (draft)",
+    "draft": true,
+    "prerelease": false,
+    "created_at": "2026-11-03T10:00:00Z",
+    "published_at": null,
+    "assets": [
+      {
+        "name": "D2R_VR_Setup_v0.190.0.exe",
+        "state": "uploaded",
+        "size": 104000000,
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000190",
+        "browser_download_url": "https://github.com/natpoh/diablo2-vr-port/releases/download/v0.190.0/D2R_VR_Setup_v0.190.0.exe"
+      }
+    ],
+    "body": "a draft is never offered"
+  },
+  {
+    "url": "https://api.github.com/repos/natpoh/diablo2-vr-port/releases/500000003",
+    "html_url": "https://github.com/natpoh/diablo2-vr-port/releases/tag/v0.189.0",
+    "id": 500000003,
+    "tag_name": "v0.189.0",
+    "name": "D2R VR Authentic 0.189 (develop)",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-11-01T10:00:00Z",
+    "published_at": "2026-11-01T10:05:00Z",
+    "assets": [
+      {
+        "name": "D2R_VR_Setup_v0.189.0.exe",
+        "state": "uploaded",
+        "size": 104100000,
+        "digest": "sha256:1891891891891891891891891891891891891891891891891891891891891891",
+        "browser_download_url": "https://github.com/natpoh/diablo2-vr-port/releases/download/v0.189.0/D2R_VR_Setup_v0.189.0.exe"
+      }
+    ],
+    "body": "A develop build."
+  },
+  {
+    "url": "https://api.github.com/repos/natpoh/diablo2-vr-port/releases/500000002",
+    "html_url": "https://github.com/natpoh/diablo2-vr-port/releases/tag/launcher-0.3.7",
+    "id": 500000002,
+    "tag_name": "launcher-0.3.7",
+    "name": "not a mod release (its tag is not v*)",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-31T10:00:00Z",
+    "published_at": "2026-10-31T10:05:00Z",
+    "assets": [
+      {
+        "name": "D2R_VR_Setup_v0.999.0.exe",
+        "state": "uploaded",
+        "size": 1000,
+        "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        "browser_download_url": "https://github.com/natpoh/diablo2-vr-port/releases/download/launcher-0.3.7/D2R_VR_Setup_v0.999.0.exe"
+      }
+    ],
+    "body": ""
+  },
+  {
+    "url": "https://api.github.com/repos/natpoh/diablo2-vr-port/releases/500000001",
+    "html_url": "https://github.com/natpoh/diablo2-vr-port/releases/tag/v0.188.0",
+    "id": 500000001,
+    "tag_name": "v0.188.0",
+    "name": "D2R VR Authentic 0.188",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-29T10:00:00Z",
+    "published_at": "2026-10-29T10:05:00Z",
+    "assets": [
+      {
+        "name": "D2R_VR_Setup_v0.188.0.exe",
+        "state": "uploaded",
+        "size": 104090000,
+        "digest": "sha256:1881881881881881881881881881881881881881881881881881881881881881",
+        "browser_download_url": "https://github.com/natpoh/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe"
+      },
+      {
+        "name": "D2R_VR_Setup_v0.188.0.exe.sha256",
+        "state": "uploaded",
+        "size": 93,
+        "digest": "sha256:abababababababababababababababababababababababababababababababab",
+        "browser_download_url": "https://github.com/natpoh/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe.sha256"
+      }
+    ],
+    "body": "## D2R VR Authentic 0.188\n\nWhat changed."
+  }
+]

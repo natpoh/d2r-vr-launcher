@@ -78,7 +78,9 @@ TEST(our_server_names_a_newer_version) {
     FakeHttp h;
     h.answers["https://bodywalkvr.com/api/version?product=d2r_vr&v=0.167.0"] = Text("authentic_newer.json");
     const Release r = LatestAuthentic(h, "0.167.0", Sources());
-    CHECK_EQ(h.asked.size(), size_t(1));
+    CHECK_EQ(h.asked.size(), size_t(2));                           // GitHub first (no answer here), then the site
+    CHECK_EQ(h.asked[0], Sources().authentic_github_api);
+    CHECK_EQ(r.warnings.size(), size_t(1));                        // "GitHub: could not ask GitHub ...; bodywalkvr.com's answer is used"
     CHECK(!r.up_to_date);
     CHECK_EQ(r.id, std::string("d2r-vr"));
     CHECK_EQ(r.version, std::string("0.168.0"));
@@ -324,7 +326,17 @@ TEST(the_download_check_knows_each_source) {
     CHECK(!ReleaseUrlOk(r, "", &why));
     CHECK(DownloadHostsFor("nope").empty());
     CHECK(HostAllowed("release-assets.githubusercontent.com", DownloadHostsFor("d2r-pcvr")));   // where GitHub redirects a release download to
-    CHECK(!HostAllowed("release-assets.githubusercontent.com", DownloadHostsFor("d2r-vr")));
+    // Authentic is in both places: an installer on the site may not be redirected off it, one on GitHub may go to GitHub's file host
+    Release site;
+    site.id = "d2r-vr";
+    site.url = "https://bodywalkvr.com/static/D2R_VR_Setup_v0.168.0.exe";
+    CHECK(!HostAllowed("release-assets.githubusercontent.com", DownloadHostsFor(site)));
+    CHECK(HostAllowed("bodywalkvr.com", DownloadHostsFor(site)));
+    Release gh = site;
+    gh.url = "https://github.com/natpoh/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe";
+    CHECK(HostAllowed("release-assets.githubusercontent.com", DownloadHostsFor(gh)));
+    CHECK(!HostAllowed("bodywalkvr.com", DownloadHostsFor(gh)));
+    CHECK(HostAllowed("release-assets.githubusercontent.com", DownloadHostsFor("d2r-pcvr")));
 }
 
 TEST(what_is_installed_comes_from_the_mods_own_manifest_only) {
@@ -462,3 +474,221 @@ TEST(the_installed_version_is_found_in_the_manifest_the_manifest_that_does_not_v
 
 
 TEST_MAIN()
+
+// ================================================================== D2R VR Authentic on GitHub (0.3.7): natpoh/diablo2-vr-port, the site when GitHub has nothing
+
+namespace {
+
+const char* kAuthSha188Url = "https://github.com/natpoh/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe.sha256";
+const char* kAuthDigest188 = "1881881881881881881881881881881881881881881881881881881881881881";
+
+std::string AuthGithub(const std::function<void(Json&)>& edit = {}) {
+    Json j = Json::Parse(Text("github_authentic_releases.json"));
+    if (edit) edit(j);
+    return j.dump();
+}
+
+// the release of the sample with this tag
+Json& Rel(Json& list, const std::string& tag) {
+    for (Json& r : list.items())
+        if (r.get_string("tag_name") == tag) return r;
+    throw std::runtime_error("no release " + tag);
+}
+
+FakeHttp AuthOnGithub(const std::function<void(Json&)>& edit = {}) {
+    FakeHttp h;
+    h.answers[Sources().authentic_github_api] = AuthGithub(edit);
+    h.answers[kAuthSha188Url] = Text("D2R_VR_Setup_v0.188.0.exe.sha256");
+    return h;
+}
+
+const std::string kSiteAsk0 = "https://bodywalkvr.com/api/version?product=d2r_vr&v=0.0.0";
+
+bool AskedSite(const FakeHttp& h) {
+    for (const std::string& u : h.asked)
+        if (u.find("bodywalkvr.com") != std::string::npos) return true;
+    return false;
+}
+
+}  // namespace
+
+TEST(authentic_takes_the_newest_github_release_and_its_checksum) {
+    FakeHttp h = AuthOnGithub();
+    const Release r = LatestAuthentic(h, "0.187.0", Sources());
+    CHECK(!AskedSite(h));                                           // GitHub answered: the site is not asked
+    CHECK_EQ(r.id, std::string("d2r-vr"));
+    CHECK_EQ(r.source, std::string("github.com/natpoh/diablo2-vr-port"));
+    CHECK_EQ(r.version, std::string("0.188.0"));                    // not the develop 0.189, the draft 0.190 or the launcher-0.3.7 tag's 0.999
+    CHECK_EQ(r.tag, std::string("v0.188.0"));
+    CHECK(!r.prerelease);
+    CHECK(!r.up_to_date);
+    CHECK_EQ(r.asset_name, std::string("D2R_VR_Setup_v0.188.0.exe"));
+    CHECK_EQ(r.url, std::string("https://github.com/natpoh/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe"));
+    CHECK_EQ(r.sha256, std::string(kAuthDigest188));
+    CHECK_EQ(r.sha256_source, std::string("digest + .sha256"));
+    CHECK_EQ(r.size, uint64_t(104090000));
+    CHECK(r.notes.find("What changed.") != std::string::npos);
+    CHECK(r.warnings.empty());
+    std::string why;
+    CHECK(ReleaseUrlOk(r, "", &why));
+    CHECK(LatestAuthentic(h, "0.188.0", Sources()).up_to_date);
+    CHECK(LatestAuthentic(h, "0.189.0", Sources()).up_to_date);     // installed is newer than GitHub's newest: never a downgrade
+    CHECK_EQ(LatestAuthentic(h, "0.189.0", Sources()).announced, std::string("0.188.0"));
+}
+
+TEST(authentic_pre_releases_are_develop_builds_offered_only_when_asked_for) {
+    FakeHttp h = AuthOnGithub();
+    ReleaseSources dev = Sources();
+    dev.develop = true;
+    const Release r = LatestAuthentic(h, "0.188.0", dev);
+    CHECK_EQ(r.version, std::string("0.189.0"));
+    CHECK(r.prerelease);
+    CHECK_EQ(r.sha256, std::string("1891891891891891891891891891891891891891891891891891891891891891"));
+    CHECK_EQ(r.sha256_source, std::string("digest"));               // no .sha256 asset on that one: GitHub's digest alone
+    // a stable release newer than the develop one wins for a develop player too
+    FakeHttp h2 = AuthOnGithub([](Json& j) { Rel(j, "v0.190.0").set("draft", Json::Bool(false)); });
+    CHECK_EQ(LatestAuthentic(h2, "0.188.0", dev).version, std::string("0.190.0"));
+    CHECK_EQ(LatestAuthentic(h2, "0.188.0", Sources()).version, std::string("0.190.0"));
+    // pre-releases only, no develop: GitHub has nothing for this player -> the site's (stable) answer, with the reason in a warning
+    FakeHttp only = AuthOnGithub([](Json& j) { Rel(j, "v0.188.0").set("prerelease", Json::Bool(true)); });
+    only.answers[kSiteAsk0] = Text("authentic_newer.json");
+    const Release s = LatestAuthentic(only, "", Sources());
+    CHECK_EQ(s.source, std::string("bodywalkvr.com"));
+    CHECK_EQ(s.version, std::string("0.168.0"));
+    CHECK_EQ(s.warnings.size(), size_t(1));
+    CHECK(s.warnings[0].find("develop builds") != std::string::npos);
+    CHECK_EQ(LatestAuthentic(only, "", dev).source, std::string("github.com/natpoh/diablo2-vr-port"));
+}
+
+TEST(authentic_falls_back_to_the_site_when_github_cannot_be_asked_or_lists_nothing) {
+    FakeHttp h;                                                     // GitHub does not answer
+    h.answers[kSiteAsk0] = Text("authentic_newer.json");
+    Release r = LatestAuthentic(h, "", Sources());
+    CHECK_EQ(r.source, std::string("bodywalkvr.com"));
+    CHECK_EQ(r.version, std::string("0.168.0"));
+    CHECK(!r.warnings.empty());
+    h.answers[Sources().authentic_github_api] = "[]";               // no release at all (the repository before the first one)
+    CHECK_EQ(LatestAuthentic(h, "", Sources()).source, std::string("bodywalkvr.com"));
+    h.answers[Sources().authentic_github_api] = "{\"message\":\"API rate limit exceeded\"}";
+    CHECK_EQ(LatestAuthentic(h, "", Sources()).source, std::string("bodywalkvr.com"));
+    // neither: the error names both
+    FakeHttp none;
+    try {
+        LatestAuthentic(none, "", Sources());
+        t::Fail(__FILE__, __LINE__, "no error");
+    } catch (const Error& e) {
+        CHECK_EQ(e.code, std::string("E_IO"));
+        CHECK(std::string(e.what()).find("bodywalkvr.com") != std::string::npos);
+        CHECK(std::string(e.what()).find("GitHub") != std::string::npos);
+    }
+    // no GitHub address (a test that names only its own site): the site alone, GitHub never asked, no warning
+    ReleaseSources siteOnly = Sources();
+    siteOnly.authentic_github_api.clear();
+    FakeHttp s;
+    s.answers[kSiteAsk0] = Text("authentic_newer.json");
+    r = LatestAuthentic(s, "", siteOnly);
+    CHECK_EQ(s.asked.size(), size_t(1));
+    CHECK(r.warnings.empty());
+}
+
+TEST(authentic_on_github_needs_a_checksum_and_a_refused_answer_is_not_papered_over_by_the_site) {
+    // no digest and no .sha256 asset: refused (Unleashed may go without; Authentic may not)
+    FakeHttp h = AuthOnGithub([](Json& j) {
+        Json& rel = Rel(j, "v0.188.0");
+        Json assets = Json::Array();
+        Json a = rel["assets"].items()[0];
+        a.set("digest", Json::String(""));
+        assets.items().push_back(a);
+        rel.set("assets", assets);
+    });
+    h.answers[kSiteAsk0] = Text("authentic_newer.json");
+    CHECK_ERROR("E_UNTRUSTED", LatestAuthentic(h, "", Sources()));
+    // the .sha256 alone is enough
+    h = AuthOnGithub([](Json& j) { Rel(j, "v0.188.0")["assets"].items()[0].set("digest", Json::String("")); });
+    Release r = LatestAuthentic(h, "", Sources());
+    CHECK_EQ(r.sha256, std::string(kAuthDigest188));
+    CHECK_EQ(r.sha256_source, std::string(".sha256 file"));
+    // ... but not when it cannot be fetched and there is no digest
+    h.answers.erase(kAuthSha188Url);
+    CHECK_ERROR("E_UNTRUSTED", LatestAuthentic(h, "", Sources()));
+    // the digest and the .sha256 file disagree
+    h = AuthOnGithub([](Json& j) { Rel(j, "v0.188.0")["assets"].items()[0].set("digest", Json::String("sha256:" + std::string(64, 'c'))); });
+    h.answers[kSiteAsk0] = Text("authentic_newer.json");
+    CHECK_ERROR("E_HASH", LatestAuthentic(h, "", Sources()));
+    CHECK(!AskedSite(h));
+}
+
+TEST(authentic_installer_must_be_a_release_asset_of_its_own_repository) {
+    auto with = [](const std::string& url) {
+        FakeHttp h = AuthOnGithub([&](Json& j) { Rel(j, "v0.188.0")["assets"].items()[0].set("browser_download_url", Json::String(url)); });
+        h.answers[kSiteAsk0] = Text("authentic_newer.json");
+        return h;
+    };
+    for (const char* url : {"https://github.com/bearstonem/d2r-pcvr/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe",       // the other mod's repository
+                            "https://github.com/someoneelse/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe",
+                            "https://release-assets.githubusercontent.com/natpoh/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe",   // the CDN only as a redirect
+                            "http://github.com/natpoh/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe",
+                            "https://github.com/natpoh/diablo2-vr-port/archive/refs/heads/main.exe",
+                            "https://evil.example/natpoh/diablo2-vr-port/releases/download/v0.188.0/D2R_VR_Setup_v0.188.0.exe"}) {
+        FakeHttp h = with(url);
+        CHECK_ERROR("E_UNTRUSTED", LatestAuthentic(h, "", Sources()));
+    }
+    // and Unleashed may not use Authentic's repository either
+    Release p;
+    p.id = "d2r-pcvr";
+    p.asset_name = "D2R-PCVR-Setup-0.3.19.exe";
+    p.url = "https://github.com/natpoh/diablo2-vr-port/releases/download/v1/D2R-PCVR-Setup-0.3.19.exe";
+    std::string why;
+    CHECK(!ReleaseUrlOk(p, "", &why));
+    // the site's answer still may not point at GitHub (old launchers read it too: it names bodywalkvr.com)
+    FakeHttp s;
+    s.answers[kSiteAsk0] = R"({"version":"0.169","download_url":"https://github.com/natpoh/diablo2-vr-port/releases/download/v0.169.0/D2R_VR_Setup_v0.169.0.exe"})";
+    CHECK_ERROR("E_UNTRUSTED", LatestAuthentic(s, "", Sources()));
+}
+
+TEST(unleashed_is_unchanged_by_the_generic_github_reader) {
+    // all of Bear's releases are pre-releases: they count without any develop switch, and a missing checksum is allowed
+    FakeHttp h = WithSha256File();
+    h.answers[Sources().unleashed_api] = Text("github_releases.json");
+    const Release r = LatestUnleashed(h, "", Sources());
+    CHECK(r.prerelease);
+    CHECK_EQ(r.version, std::string("0.3.19"));
+    CHECK_EQ(r.source, std::string("github.com/bearstonem/d2r-pcvr"));
+    const GithubSource u = UnleashedGithub();
+    CHECK(u.prereleases && !u.require_hash && u.tag_glob.empty());
+    const GithubSource a = AuthenticGithub(false);
+    CHECK(!a.prereleases && a.require_hash);
+    CHECK_EQ(a.tag_glob, std::string("v*"));
+    CHECK(AuthenticGithub(true).prereleases);
+    // Authentic's reader does not take Bear's installers, nor Bear's reader Authentic's
+    CHECK_ERROR("E_NOT_FOUND", ParseGithubReleases(Github(), AuthenticGithub(true), "", nullptr, Sources()));
+    CHECK_ERROR("E_NOT_FOUND", ParseUnleashedAnswer(AuthGithub(), "", nullptr, Sources()));
+}
+
+TEST(the_develop_switch_is_the_mods_own_update_develop) {
+    tt::Sandbox sb;
+    CHECK(!AuthenticDevelopWanted(sb.game));
+    CHECK(!AuthenticDevelopWanted(fs::path()));
+    const fs::path ini = sb.game / "mods" / "D2R-VR" / "d2rloader" / "plugins" / "d2r_vr.ini";
+    tt::Write(ini, "[update]\r\ncheck=1\r\ndevelop=0\r\n");
+    CHECK(!AuthenticDevelopWanted(sb.game));
+    tt::Write(ini, "\xEF\xBB\xBF; comment\r\n[top]\r\ndevelop=1\r\n[ Update ]\r\n  Develop = 1 ; beta\r\n");
+    CHECK(AuthenticDevelopWanted(sb.game));
+    tt::Write(ini, "[update]\ndevelop=yes\n");                    // not a number: 0, as GetPrivateProfileInt reads it
+    CHECK(!AuthenticDevelopWanted(sb.game));
+    tt::Write(ini, "[top]\ndevelop=1\n");                           // another section's key
+    CHECK(!AuthenticDevelopWanted(sb.game));
+    // the old layout's ini, when the mod folder has none
+    fs::remove(ini);
+    tt::Write(sb.game / "d2rloader" / "plugins" / "d2r_vr.ini", "[update]\ndevelop=2\n");
+    CHECK(AuthenticDevelopWanted(sb.game));
+
+    // an update check reads it: the develop 0.189 for this player, 0.188 without it
+    FakeHttp h = AuthOnGithub();
+    CHECK_EQ(CheckUpdate(h, sb.game, "d2r-vr", Sources()).latest.version, std::string("0.189.0"));
+    tt::Write(sb.game / "d2rloader" / "plugins" / "d2r_vr.ini", "[update]\ndevelop=0\n");
+    const UpdateInfo u = CheckUpdate(h, sb.game, "d2r-vr", Sources());
+    CHECK(u.checked);
+    CHECK_EQ(u.latest.version, std::string("0.188.0"));
+    CHECK(u.can_install);
+}

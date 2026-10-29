@@ -546,3 +546,29 @@ TEST(the_headless_text_has_a_line_per_piece_and_the_words) {
 }
 
 TEST_MAIN()
+
+TEST(the_test_addresses_and_the_hosts_each_mod_question_may_reach) {
+    std::map<std::string, std::string> env;
+    ReleaseSources s = ReleaseSourcesFor(env);                                  // production: GitHub first, then the site
+    CHECK_EQ(s.authentic_github_api, std::string("https://api.github.com/repos/natpoh/diablo2-vr-port/releases?per_page=10"));
+    CHECK_EQ(s.authentic_api, std::string("https://bodywalkvr.com/api/version"));
+    env["VRML_URL_AUTHENTIC_API"] = "http://127.0.0.1:8123/api/version";
+    env["VRML_URL_AUTHENTIC_GITHUB_API"] = "http://127.0.0.1:8123/gh/authentic";
+    s = ReleaseSourcesFor(env);                                                 // without the switch the test addresses are ignored
+    CHECK_EQ(s.authentic_api, std::string("https://bodywalkvr.com/api/version"));
+    CHECK_EQ(s.authentic_github_api, std::string("https://api.github.com/repos/natpoh/diablo2-vr-port/releases?per_page=10"));
+    env["VRML_ALLOW_HTTP_HOST"] = "127.0.0.1:8123";
+    s = ReleaseSourcesFor(env);
+    CHECK_EQ(s.authentic_api, std::string("http://127.0.0.1:8123/api/version"));
+    CHECK_EQ(s.authentic_github_api, std::string("http://127.0.0.1:8123/gh/authentic"));
+    env.erase("VRML_URL_AUTHENTIC_GITHUB_API");                                 // a test of its own site only never reaches the real GitHub
+    CHECK(ReleaseSourcesFor(env).authentic_github_api.empty());
+    CHECK(!ReleaseSourcesFor(env).develop);
+
+    const HttpOptions a = HttpOptionsForQuestion(Piece::Authentic, {});
+    for (const char* h : {"api.github.com", "github.com", "release-assets.githubusercontent.com", "bodywalkvr.com"}) CHECK(HostAllowed(h, a.allow_hosts));
+    CHECK(!HostAllowed("evil.example", a.allow_hosts));
+    const HttpOptions u = HttpOptionsForQuestion(Piece::Unleashed, {});
+    CHECK(!HostAllowed("bodywalkvr.com", u.allow_hosts));                       // Unleashed's question as before
+    CHECK(HostAllowed("api.github.com", u.allow_hosts));
+}

@@ -237,7 +237,8 @@ int InstallModCommand(const InstallCliArgs& a, const std::string& id, std::ostre
     const std::vector<std::string> running = env.probe->Running({"D2R.exe", "D2RLoader.exe"});
     if (!running.empty()) Throw("E_GAME_RUNNING", "Close " + running.front() + " first: the game is running.");
 
-    const ReleaseSources src = SourcesFor(env);
+    ReleaseSources src = SourcesFor(env);
+    if (id == "d2r-vr") src.develop = AuthenticDevelopWanted(game);
     const std::string testHost = src.test_http_host;
     const std::string installed = InstalledVersion(game, id);
     std::unique_ptr<HttpClient> holder;
