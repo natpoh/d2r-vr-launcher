@@ -1,7 +1,7 @@
 # D2R VR Launcher
 
-**Download: [D2R_VR_Launcher_Setup_0.3.6.exe](https://github.com/natpoh/d2r-vr-launcher/raw/main/download/D2R_VR_Launcher_Setup_0.3.6.exe)** (Windows, 2.5 MB, per user, no admin prompt;
-SHA-256 `BA5C4ABFDD7C63BBE84C8C98233BC63B4952151AC2BA8D4975708C9A573756C3`). Install it, pick a mod in the list and press **Play**: switching between the
+**Download: [D2R_VR_Launcher_Setup_0.3.7.exe](https://github.com/natpoh/d2r-vr-launcher/raw/main/download/D2R_VR_Launcher_Setup_0.3.7.exe)** (Windows, 2.5 MB, per user, no admin prompt;
+SHA-256 `FF4B717CBBA32137D5F3770E250F6516F78C648F4863EF006CAE814B7AA52175`). Install it, pick a mod in the list and press **Play**: switching between the
 VR mods is one click. The D2R VR Authentic installer also carries it.
 
 A launcher for the two Diablo II: Resurrected VR mods — **D2R VR Authentic** (natpoh) and **D2R VR Unleashed** (bearstonem's d2r-pcvr) —
