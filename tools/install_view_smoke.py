@@ -17,7 +17,8 @@ What is checked
      its default button, No), a real install, a cancel in the middle of a download, the refusal while the game runs and without a game folder
   3. the main window: the update badge and the Install / Update button of a card, the quiet check (always since 0.3.6: also with the settings of a launcher
      whose old "Check for updates when the launcher starts" box was unticked; off only by --no-update-check; silent when the server is down; not again when the
-     window comes back to the front within the hour), the offer of the install view on a first run
+     window comes back to the front within the hour), Launch diagnostics (D2R VR Headset Report beside D2R.exe: missing, Cancel, a report, a failure, a
+     running game), the offer of the install view on a first run
   2b. the rows of the view: each row's own buttons (Install / Update / Repair / a greyed Up to date, and Uninstall on an installed mod), nothing ticked unless it is a
      real install or update, a downgrade never offered (Authentic 0.170.0 installed while the site says 0.169), an installed version found in a manifest that does not
      validate or in the plugin's version resource, a row's button running only its piece, the row's Uninstall (the question, No runs nothing, the mod's own
@@ -80,13 +81,14 @@ user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, w
 user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.SendMessageW.restype = wintypes.LPARAM
 BM_CLICK, BM_GETCHECK, BM_SETCHECK, WM_CLOSE, DM_GETDEFID, PBM_GETPOS, WM_GETTEXT, WM_GETTEXTLENGTH = 0xF5, 0xF0, 0xF1, 0x10, 0x400, 0x408, 0x0D, 0x0E
-IDYES, IDNO = 6, 7
+IDOK, IDCANCEL, IDYES, IDNO = 1, 2, 6, 7
 
 # the control ids of gui_install_view.cpp and gui_window.cpp
 V_ROWS, V_NOTICE, V_STEP, V_PROGRESS, V_LOG, V_CHECK, V_INSTALL, V_CLOSE, V_BOX = 210, 211, 212, 213, 214, 215, 216, 2, 1100       # V_BOX + 0 loader, 1 Authentic, 2 Unleashed
 V_ACT, V_UN = 1200, 1300          # + 0 / 1 / 2: each row's own Install / Update / Repair / Up to date button and its Uninstall button
 M_LIST, M_INSTALL_VIEW, M_UPDATE_CHECK, M_MESSAGE, M_LOG = 105, 119, 120, 117, 118     # M_UPDATE_CHECK: the box of 0.3.0-0.3.5, gone since 0.3.6
 WM_ACTIVATEAPP = 0x1C
+M_DIAG = 121                                                                         # Launch diagnostics (0.3.8)
 CARD_RADIO, CARD_LINK, CARD_INSTALL = 1000, 2000, 3000
 VIEW_CLASS, MAIN_CLASS = "D2RVRLauncherInstallView", "D2RVRLauncherWindow"
 
@@ -713,7 +715,7 @@ def part_0_version():
     import re
     want = re.search(r'kLauncherVersion = "([^"]+)"', (HERE / "src" / "util.h").read_text(encoding="utf-8")).group(1)
     got = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-Item '{EXE}').VersionInfo.FileVersion"], capture_output=True, text=True).stdout.strip()
-    check(want == "0.3.7", f"the launcher is 0.3.7 ({want})")
+    check(want == "0.3.8", f"the launcher is 0.3.8 ({want})")
     check(got == want, f"the exe's version resource follows it ({got!r})")
     cli = Path(EXE).with_name("vrmodlauncher.exe")
     if cli.exists():
@@ -1374,8 +1376,8 @@ def part_3_main_window():
             if i in ids:
                 break
             ids.append(i)
-        check(ids == [101, 102, 1000, 3000, 3001, 4000, 4001, 2000, 2001, 107, 111, 110, 119, 114, 116, 118],
-              f"Tab order of the main window: game folder, Browse, the card, both Install / Update buttons, both Uninstall buttons, both Website links, runtime, Play, the box, Install / update mods, Logs, About, the log ({ids})")
+        check(ids == [101, 102, 1000, 3000, 3001, 4000, 4001, 2000, 2001, 107, 111, 110, 119, 121, 114, 116, 118],
+              f"Tab order of the main window: game folder, Browse, the card, both Install / Update buttons, both Uninstall buttons, both Website links, runtime, Play, the box, Install / update mods, Launch diagnostics, Logs, About, the log ({ids})")
         check(not dlg(main, M_UPDATE_CHECK), "no 'Check for updates when the launcher starts' box any more: the window always looks")
         n = api_hits()
         user32.SendMessageW(main, WM_ACTIVATEAPP, 1, 0)
@@ -1456,6 +1458,8 @@ def part_3_main_window():
     finally:
         app.close()
 
+    part_3_diagnostics()
+
     print("  -- the first run: no VR mod installed, the folder found, not given")
     reset_server()
     game, home = make_game("m_first", loader=True)
@@ -1500,6 +1504,68 @@ def part_3_main_window():
         main = app.window(MAIN_CLASS)
         time.sleep(2.0)
         check(main is not None and not app.dialogs(), "a folder given with --game is never offered anything")
+    finally:
+        app.close()
+
+
+def part_3_diagnostics():
+    print("  -- Launch diagnostics: D2R VR Headset Report beside D2R.exe (a copy of fake_setup.exe under that name), its report into --report-dir (the Desktop for players)")
+    game, home = make_game("m_diag", loader=True, authentic="0.192.22")
+    out = WORK / "m_diag" / "desk"
+    out.mkdir(parents=True, exist_ok=True)
+    reports = lambda: sorted(out.glob("D2R_VR_headset_report_*.txt"))
+    message = lambda m: wtext(dlg(m, M_MESSAGE))
+    app = App(["--game", game, "--home", home, "--no-update-check", "--report-dir", out], env_for(game))
+    try:
+        main = app.window(MAIN_CLASS)
+        check(main is not None, "the window opens")
+        if not main:
+            return
+        check(wtext(dlg(main, M_DIAG)).replace("&", "") == "Launch diagnostics" and user32.IsWindowEnabled(dlg(main, M_DIAG)), "the button 'Launch diagnostics' is there and on")
+        press(dlg(main, M_DIAG))
+        check(wait_for(lambda: "Update D2R VR Authentic" in message(main), 5) and not app.dialogs(),
+              f"no D2R_VR_Headset_Report.exe (an Authentic before 0.192.22): one line asks to update, no dialog ({message(main)!r})")
+        shutil.copy(FAKE_SETUP, game / "D2R_VR_Headset_Report.exe")
+        press(dlg(main, M_DIAG))
+        d = app.wait_dialog()
+        text = dialog_text(d) if d else ""
+        check(d is not None and "Close the game" in text and "Put the headset on and hold both controllers in front of you" in text and "Desktop" in text,
+              f"with the program there: a question first that says close the game, headset on, controllers in front ({text[:120]!r})")
+        if d:
+            press(dlg(d, IDCANCEL))
+            check(wait_for(lambda: not app.dialogs(), 5) and (time.sleep(1.0) or not reports()), "Cancel runs nothing")
+        press(dlg(main, M_DIAG))
+        d = app.wait_dialog()
+        if d:
+            press(dlg(d, IDOK))
+        check(d is not None and wait_for(lambda: "Diagnostics saved" in message(main), 20), f"OK runs it: 'Diagnostics saved' ({message(main)!r})")
+        got = reports()
+        check(len(got) == 1, f"one report in the report folder, named D2R_VR_headset_report_<date>.txt ({[p.name for p in got]})")
+        if got:
+            r = got[0].read_text(encoding="utf-8", errors="replace")
+            check("arg --no-wait" in r and f"arg {game}" in r and f"cwd {game}" in r, f"...it was run with --no-wait --out <report> --game <the game folder>, in the game folder ({r!r})")
+            check(got[0].name in message(main) and "#support" in message(main), "...the line names the file and says where to post it")
+        check(user32.IsWindowEnabled(dlg(main, M_DIAG)), "the button is on again")
+    finally:
+        app.close()
+    print("     a report program that fails, and a running game")
+    app = App(["--game", game, "--home", home, "--no-update-check", "--report-dir", out], env_for(game, {"FAKE_REPORT_EXIT": "1"}))
+    try:
+        main = app.window(MAIN_CLASS)
+        if main:
+            press(dlg(main, M_DIAG))
+            d = app.wait_dialog()
+            if d:
+                press(dlg(d, IDOK))
+            check(wait_for(lambda: "exit code 1" in message(main), 20) and not app.dialogs(), f"exit code 1: one line says so, no error box ({message(main)!r})")
+    finally:
+        app.close()
+    app = App(["--game", game, "--home", home, "--no-update-check", "--report-dir", out, "--processes", "D2R.exe"], env_for(game))
+    try:
+        main = app.window(MAIN_CLASS)
+        if main:
+            press(dlg(main, M_DIAG))
+            check(wait_for(lambda: "close the game first" in message(main), 5) and not app.dialogs(), f"the game running: one line says close it first, nothing runs ({message(main)!r})")
     finally:
         app.close()
 

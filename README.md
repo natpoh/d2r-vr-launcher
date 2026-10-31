@@ -68,6 +68,12 @@ unticked it saw "Installed" on both cards while the install view said "Update av
 always asks quietly (the same question as the install view: the site with the installed version, GitHub's list of releases with pre-releases), at start, when another game folder is
 chosen, and when it comes back to the front an hour or more after the last look. `check_updates_on_start` in an old `settings.json` is ignored and no longer written.
 
+**Launch diagnostics (0.3.8).** A button on the bottom row runs D2R VR Headset Report (`D2R_VR_Headset_Report.exe`, which D2R VR Authentic's Setup puts beside `D2R.exe` since
+0.192.22) for a headset picture that is doubled, cross-eyed or stretched, or hands at the waist. A question first says what to do: close the game, put the headset on, hold both
+controllers in front, then OK. The launcher runs it with no window of its own (`--no-wait --out <Desktop>\D2R_VR_headset_report_<date>.txt --game <game folder>`, about 20 s,
+stopped after 150 s), Play waits meanwhile, and when the report is written the line under the buttons names it and Explorer opens on it. No report program (an older Authentic),
+a running game or a failure is one line under the buttons, never an error box. `--report-dir DIR` is the test aid that writes it elsewhere and opens no Explorer.
+
 ## The window: `D2RVRLauncher.exe`
 
 Plain Win32 and GDI+ (nothing to install; icon, pictures, manifest and version are in the exe). Built as the CMake target `d2rvrlauncher` on Windows.

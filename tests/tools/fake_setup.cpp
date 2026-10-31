@@ -13,6 +13,10 @@
 //   FAKE_UNINSTALL_MODE      "remove" (default): delete <FAKE_SETUP_GAME>\mods\<mod>; "keep": exit without removing (the player answered No in its own question)
 //   FAKE_UNINSTALL_EXIT      the exit code (default 0)
 //   FAKE_UNINSTALL_DELAY_MS  wait this long before it removes anything (its wizard is open for a while)
+// Copied to a file named D2R_VR_Headset_Report.exe it is a stand-in for D2R VR Headset Report (the launcher's Launch diagnostics): it writes the file after --out
+// (its arguments, one per line, and the folder it was started in) and exits:
+//   FAKE_REPORT_EXIT      the exit code (default 0; not 0 = no report written)
+//   FAKE_REPORT_DELAY_MS  wait this long first (the headset's seconds)
 // The three after MOD may be given per mod, with the mod's name and '_' for '-' as a suffix, and then win over the plain one: FAKE_SETUP_MANIFEST_D2R_VR,
 // FAKE_SETUP_MODE_D2R_PCVR, FAKE_SETUP_EXIT_D2R_VR ... (one environment serves a run that installs both mods).
 #include <windows.h>
@@ -100,6 +104,27 @@ int Uninstall(const std::wstring& self, int argc, wchar_t** argv) {
     return code.empty() ? 0 : _wtoi(code.c_str());
 }
 
+// D2R_VR_Headset_Report.exe: the stand-in report program
+int Report(int argc, wchar_t** argv) {
+    const int delay = _wtoi(Env(L"FAKE_REPORT_DELAY_MS").c_str());
+    if (delay > 0) Sleep(static_cast<DWORD>(delay));
+    const int code = _wtoi(Env(L"FAKE_REPORT_EXIT").c_str());
+    if (code != 0) return code;
+    std::wstring out;
+    for (int i = 1; i + 1 < argc; ++i)
+        if (std::wstring(argv[i]) == L"--out") out = argv[i + 1];
+    if (out.empty()) return 1;
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, out.c_str(), L"wb") != 0 || !f) return 1;
+    std::fprintf(f, "fake headset report\r\n");
+    for (int i = 1; i < argc; ++i) std::fprintf(f, "arg %s\r\n", Utf8(argv[i]).c_str());
+    wchar_t cwd[MAX_PATH] = {};
+    GetCurrentDirectoryW(MAX_PATH, cwd);
+    std::fprintf(f, "cwd %s\r\n", Utf8(cwd).c_str());
+    std::fclose(f);
+    return 0;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -108,7 +133,9 @@ int wmain(int argc, wchar_t** argv) {
     const std::wstring exe = Upper(std::wstring(self));
     {
         const size_t sl = exe.find_last_of(L"\\/");
-        if ((sl == std::wstring::npos ? exe : exe.substr(sl + 1)) == L"UNINS000.EXE") return Uninstall(std::wstring(self), argc, argv);
+        const std::wstring own = sl == std::wstring::npos ? exe : exe.substr(sl + 1);
+        if (own == L"UNINS000.EXE") return Uninstall(std::wstring(self), argc, argv);
+        if (own == L"D2R_VR_HEADSET_REPORT.EXE") return Report(argc, argv);
     }
     std::wstring mod = Env(L"FAKE_SETUP_MOD");
     if (mod.empty()) {

@@ -33,6 +33,7 @@ struct Options {
     bool install_view = false;                 // --install-view: open the install view right after start (the launcher's Setup finish page, first runs)
     std::vector<std::string> install_tick;     // --install-tick LIST: the pieces ticked when the view opens (what a card's Install / Update button does)
     bool no_update_check = false;              // --no-update-check: no quiet look at the newest releases at start (a test aid: tests never ask the internet)
+    std::string report_dir;                    // --report-dir DIR: Launch diagnostics writes its report here instead of the Desktop and opens no Explorer (a test aid)
     // test aids that touch the network: honoured only together with VRML_ALLOW_HTTP_HOST (TestSwitchProblems says so)
     bool has_install_run = false;              // --install-run LIST: no window: install these pieces like the view's Install button, print one line each, exit 0 or the first failure's code
     std::vector<std::string> install_run;      // the pieces of that list: loader, authentic, unleashed
@@ -70,6 +71,18 @@ struct PlayState {
     bool can = false;
     std::string reason;                  // shown beside the button when !can
 };
+
+// What "Launch diagnostics" does now (Model::Diagnostics).
+constexpr const char* kHeadsetReportExe = "D2R_VR_Headset_Report.exe";
+struct DiagnosticsPlan {
+    enum class Kind { NoGame, Missing, GameRunning, Ready } kind = Kind::NoGame;
+    std::string message;                 // NoGame / Missing / GameRunning: the line under the buttons (not an error box)
+    fs::path exe;                        // <game>\D2R_VR_Headset_Report.exe
+    fs::path report;                     // <reportDir>\D2R_VR_headset_report_<stamp>.txt
+    std::vector<std::string> args;       // --no-wait --out <report> --game <game folder>: no window of its own, no "press Enter"
+};
+// "2026-10-31_14-05-09": the report's name stamp, as the report program names its own (local time).
+std::string DiagnosticsStamp(int year, int month, int day, int hour, int minute, int second);
 
 // A path as the player knows it: backslashes.
 std::string DisplayPath(const fs::path& p);
@@ -150,6 +163,10 @@ public:
     bool GameRunning() const;
     // StartMod, then remembers what was used (not after a dry run, not after a refusal). skip_first_start_check: the player chose "Start anyway".
     StartOutcome Play(bool dry_run, bool skip_first_start_check = false);
+
+    // ---- Launch diagnostics: D2R VR Headset Report (D2R_VR_Headset_Report.exe, which D2R VR Authentic's Setup puts beside D2R.exe since 0.192.22)
+    // asks the PC's OpenXR runtime what it gives the headset and writes one text report. Run with the game closed; it changes nothing on the PC.
+    DiagnosticsPlan Diagnostics(const fs::path& reportDir, const std::string& stamp, bool game_running) const;
 
     // ---- what is remembered
     LauncherSettings& settings() { return settings_; }

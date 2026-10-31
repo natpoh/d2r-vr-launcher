@@ -159,6 +159,7 @@ enum : int {
     IDC_RT_LABEL, IDC_RT_COMBO, IDC_RT_BROWSE, IDC_RT_DETAIL,
     IDC_CLOSE_CHECK, IDC_PLAY, IDC_PLAY_REASON, IDC_SETTINGS, IDC_LOGS, IDC_RESERVED_UNINSTALL /* was the bottom-row button: each installed card has its own now */, IDC_ABOUT,
     IDC_MESSAGE, IDC_LOG, IDC_INSTALL_VIEW, IDC_RESERVED_UPDATE_CHECK /* was "Check for updates when the launcher starts": since 0.3.6 the window always looks */,
+    IDC_DIAGNOSTICS,              // "Launch diagnostics": D2R VR Headset Report (0.3.8)
     IDC_CARD_RADIO = 1000,        // + the card's number
     IDC_CARD_LINK = 2000,         // the card's links: "Website" and its support place ("Discord" / "Support"), one SysLink
     IDC_CARD_INSTALL = 3000,      // the card's "Install" / "Update" button
@@ -172,6 +173,9 @@ constexpr UINT WM_APP_OPEN_INSTALL = WM_APP + 5;   // --install-view: open the i
 constexpr UINT WM_APP_OFFER = WM_APP + 6;      // first run: offer the install view
 constexpr UINT WM_APP_OPEN_CARD = WM_APP + 7;  // wParam: a card's Install / Update button was pressed (posted: its own click is over before the view opens)
 constexpr UINT WM_APP_UPDATE_AGAIN = WM_APP + 8;   // the quiet check is over and another game folder was chosen while it ran: ask again
+constexpr UINT WM_APP_DIAG_DONE = WM_APP + 9;  // wParam: D2R VR Headset Report's exit code (kDiagNotStarted / kDiagTimedOut): Launch diagnostics is over
+constexpr WPARAM kDiagNotStarted = 0xFFFFFFF0, kDiagTimedOut = 0xFFFFFFF1;
+constexpr DWORD kDiagWaitMs = 150000;          // ~20 s with the headset on; the report program gives up by itself within 90 s
 constexpr UINT_PTR kTimerPoll = 1;
 constexpr UINT_PTR kTimerShotGuard = 2;
 constexpr UINT kPollMs = 1500;
@@ -288,6 +292,8 @@ private:
     void ShowOutcome(const StartOutcome& so);
     void DoSettings();
     void DoLogs();
+    void DoDiagnostics();                 // "Launch diagnostics": D2R VR Headset Report, its report on the Desktop
+    void OnDiagnosticsDone(WPARAM code);
     void OnCardUninstall(int cardIndex);
     void DoAbout();
     void OpenInstallView(const std::vector<Piece>& tick, bool explicitTick);
@@ -319,7 +325,7 @@ private:
 
     HWND lbl_game_ = nullptr, cmb_game_ = nullptr, btn_game_browse_ = nullptr, st_game_ = nullptr, lbl_mods_ = nullptr, list_ = nullptr;
     HWND lbl_rt_ = nullptr, cmb_rt_ = nullptr, btn_rt_browse_ = nullptr, st_rt_ = nullptr, chk_close_ = nullptr;
-    HWND btn_play_ = nullptr, st_reason_ = nullptr, btn_installview_ = nullptr, btn_settings_ = nullptr, btn_logs_ = nullptr, btn_about_ = nullptr;
+    HWND btn_play_ = nullptr, st_reason_ = nullptr, btn_installview_ = nullptr, btn_diag_ = nullptr, btn_settings_ = nullptr, btn_logs_ = nullptr, btn_about_ = nullptr;
     HWND st_msg_ = nullptr, edt_log_ = nullptr, tooltip_ = nullptr;
 
     Gdiplus::Bitmap* logo_ = nullptr;
@@ -346,6 +352,8 @@ private:
     ULONGLONG update_asked_at_ = 0;        // when the quiet check last asked the servers (0 = not yet)
     int update_pending_ = 0;               // answers of the quiet check still to come
     bool update_again_ = false;            // another game folder was chosen while the servers were being asked: ask again for it
+    bool diag_running_ = false;            // D2R VR Headset Report runs (Launch diagnostics): its button and Play wait
+    fs::path diag_report_;                 // where it was told to write its report
     int paints_ = 0;
     bool shot_requested_ = false;
     bool shot_done_ = false;
@@ -504,7 +512,7 @@ void Window::ApplyFonts() {
         if (h) SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(f), TRUE);
     };
     for (HWND h : {lbl_game_, cmb_game_, btn_game_browse_, st_game_, lbl_mods_, lbl_rt_, cmb_rt_, btn_rt_browse_, st_rt_, chk_close_, st_reason_,
-                   btn_installview_, btn_settings_, btn_logs_, btn_about_, st_msg_, edt_log_})
+                   btn_installview_, btn_diag_, btn_settings_, btn_logs_, btn_about_, st_msg_, edt_log_})
         set(h, fonts_.ui);
     set(lbl_game_, fonts_.bold);
     set(lbl_mods_, fonts_.bold);
@@ -557,6 +565,7 @@ void Window::CreateControls() {
     st_reason_ = Static(IDC_PLAY_REASON, L"", SS_NOPREFIX);
     chk_close_ = Button(IDC_CLOSE_CHECK, L"&Close the launcher when the game starts", BS_AUTOCHECKBOX);
     btn_installview_ = Button(IDC_INSTALL_VIEW, L"&Install / update mods...");
+    btn_diag_ = Button(IDC_DIAGNOSTICS, L"Launch &diagnostics");
     btn_logs_ = Button(IDC_LOGS, L"&Logs");
     btn_about_ = Button(IDC_ABOUT, L"&About");
     st_msg_ = Static(IDC_MESSAGE, L"", SS_NOPREFIX);
@@ -648,6 +657,10 @@ PlayState Window::CurrentPlayState() const {
         p.can = false;
         p.reason = "Starting the game...";
     }
+    if (p.can && diag_running_) {                    // the report program holds the headset
+        p.can = false;
+        p.reason = "Launch diagnostics is running (about 20 s).";
+    }
     return p;
 }
 
@@ -671,6 +684,7 @@ void Window::UpdateButtons() {
         }
     }
     EnableWindow(btn_logs_, m && m->installed && !tools.logs.empty());
+    EnableWindow(btn_diag_, !diag_running_);
     const int idx = model_.runtime_index();
     EnableWindow(btn_rt_browse_, idx >= 0 && idx < static_cast<int>(model_.runtimes().size()) && model_.runtimes()[static_cast<size_t>(idx)].id == "file");
     InvalidateRect(btn_play_, nullptr, TRUE);
@@ -1150,9 +1164,9 @@ void Window::Layout() {
     put(chk_close_, m, cy, w, check_h);
     y += play_row_h + S(10);
     int x = m;
-    const int widths[] = {S(168), S(64), S(68)};
-    HWND row_buttons[] = {btn_installview_, btn_logs_, btn_about_};
-    for (int i = 0; i < 3; ++i) {
+    const int widths[] = {S(168), S(140), S(64), S(68)};
+    HWND row_buttons[] = {btn_installview_, btn_diag_, btn_logs_, btn_about_};
+    for (int i = 0; i < 4; ++i) {
         put(row_buttons[i], x, y, widths[i], btn_h);
         x += widths[i] + S(8);
     }
@@ -1340,6 +1354,9 @@ void Window::OnCommand(int id, int code, HWND from) {
             break;
         case IDC_SETTINGS: DoSettings(); break;
         case IDC_LOGS: DoLogs(); break;
+        case IDC_DIAGNOSTICS:
+            if (code == BN_CLICKED) DoDiagnostics();
+            break;
         case IDC_ABOUT: DoAbout(); break;
         default: break;
     }
@@ -1548,6 +1565,100 @@ void Window::DoLogs() {
     }
     const ModEntry* m = model_.mod();
     Say(Tone::Warn, std::string("There is no log file yet") + (m ? " for " + m->name : "") + ": the mod writes it when the game has run.");
+}
+
+// "Launch diagnostics": D2R VR Headset Report (beside D2R.exe, from D2R VR Authentic's Setup) asks the headset's OpenXR runtime what it gives and writes one text
+// report. The launcher runs it with no window of its own (--no-wait), puts the report on the Desktop and shows it in Explorer. A missing program (an older
+// Authentic) or a running game is one line under the buttons, never an error box.
+void Window::DoDiagnostics() {
+    if (diag_running_) return;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    const std::string stamp = DiagnosticsStamp(st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    fs::path dir = opt_.report_dir.empty() ? fs::path() : fs::u8path(opt_.report_dir);
+    if (dir.empty()) {
+        wchar_t* desk = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desk)) && desk) dir = fs::path(desk);
+        CoTaskMemFree(desk);
+        if (dir.empty()) dir = fs::temp_directory_path();
+    }
+    DiagnosticsPlan plan = model_.Diagnostics(dir, stamp, model_.GameRunning());
+    if (plan.kind != DiagnosticsPlan::Kind::Ready) {
+        Say(plan.kind == DiagnosticsPlan::Kind::NoGame ? Tone::Normal : Tone::Warn, plan.message);
+        return;
+    }
+    const wchar_t* ask = L"Launch diagnostics runs D2R VR Headset Report: it asks your headset's OpenXR runtime what it gives (the eyes, the spaces, the "
+                         L"controllers) and writes one text report. Nothing on the PC is changed.\n\n"
+                         L"1. Close the game.\n2. Put the headset on and hold both controllers in front of you.\n3. Press OK, then keep still for about 20 seconds.\n\n"
+                         L"The report is saved on your Desktop and Explorer opens on it: post it in #support on our Discord.";
+    if (MessageBoxW(hwnd_, ask, L"Launch diagnostics", MB_OKCANCEL | MB_ICONINFORMATION) != IDOK) return;
+    if (model_.GameRunning()) {                      // started meanwhile
+        plan = model_.Diagnostics(dir, stamp, true);
+        Say(Tone::Warn, plan.message);
+        return;
+    }
+    std::wstring cmd = L"\"" + WPath(plan.exe) + L"\"";
+    for (const std::string& a : plan.args) cmd += L" \"" + W(a) + L"\"";
+    struct Job {
+        HWND target;
+        std::wstring exe;
+        std::wstring cmd;
+        std::wstring dir;
+    };
+    auto* job = new Job{hwnd_, WPath(plan.exe), cmd, WPath(model_.game()->install.dir)};
+    diag_running_ = true;
+    diag_report_ = plan.report;
+    AppendLog("Launch diagnostics: " + DisplayPath(plan.exe) + " --no-wait --out " + DisplayPath(plan.report));
+    Say(Tone::Normal, "Running diagnostics: keep the headset on and both controllers in front of you (about 20 s)...", false);
+    UpdateButtons();
+    // the report program waits for the headset (CreateThread, not std::thread: see StartLoaderCheck)
+    HANDLE th = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
+        std::unique_ptr<Job> j(static_cast<Job*>(p));
+        STARTUPINFOW si{};
+        si.cb = sizeof si;
+        PROCESS_INFORMATION pi{};
+        WPARAM code = kDiagNotStarted;
+        if (CreateProcessW(j->exe.c_str(), j->cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, j->dir.c_str(), &si, &pi)) {
+            CloseHandle(pi.hThread);
+            if (WaitForSingleObject(pi.hProcess, kDiagWaitMs) == WAIT_OBJECT_0) {
+                DWORD c = 1;
+                code = GetExitCodeProcess(pi.hProcess, &c) ? c : 1;
+            } else {
+                TerminateProcess(pi.hProcess, 2);
+                code = kDiagTimedOut;
+            }
+            CloseHandle(pi.hProcess);
+        }
+        PostMessageW(j->target, WM_APP_DIAG_DONE, code, 0);
+        return 0;
+    }, job, 0, nullptr);
+    if (th) {
+        CloseHandle(th);
+    } else {
+        delete job;
+        OnDiagnosticsDone(kDiagNotStarted);
+    }
+}
+
+void Window::OnDiagnosticsDone(WPARAM code) {
+    diag_running_ = false;
+    UpdateButtons();
+    const std::string name = diag_report_.filename().u8string();
+    if (code == 0 && IsFile(diag_report_)) {
+        Say(Tone::Ok, "Diagnostics saved: " + name + (opt_.report_dir.empty() ? " on your Desktop" : "") + ". Post it in #support on our Discord.");
+        model_.Log("launch diagnostics: report " + DisplayPath(diag_report_));
+        if (opt_.report_dir.empty()) {
+            const std::wstring args = L"/select,\"" + WPath(diag_report_) + L"\"";
+            ShellExecuteW(hwnd_, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+        }
+        return;
+    }
+    std::string why;
+    if (code == kDiagNotStarted) why = "D2R VR Headset Report could not be started";
+    else if (code == kDiagTimedOut) why = "D2R VR Headset Report did not finish within " + std::to_string(kDiagWaitMs / 1000) + " s and was stopped";
+    else why = "D2R VR Headset Report could not write its report (exit code " + std::to_string(code) + ")";
+    Say(Tone::Warn, "Launch diagnostics: " + why + ". Is the headset on and its VR software (SteamVR, Oculus, Virtual Desktop...) running? Then try again.");
+    model_.Log("launch diagnostics: " + why);
 }
 
 // The card's Uninstall: the mod's own uninstaller (never a folder deleted here). Refused while the game runs; a question that names the mod comes first; the mod's own
@@ -2014,6 +2125,9 @@ LRESULT Window::OnMain(UINT m, WPARAM w, LPARAM l) {
             return 0;
         case WM_APP_UPDATE_AGAIN:
             StartUpdateCheck(true);
+            return 0;
+        case WM_APP_DIAG_DONE:
+            OnDiagnosticsDone(w);
             return 0;
 
         case WM_CLOSE:

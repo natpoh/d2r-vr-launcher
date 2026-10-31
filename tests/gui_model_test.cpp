@@ -733,3 +733,38 @@ TEST(the_question_before_an_uninstaller_names_the_mod_and_the_uninstaller) {
 
 
 TEST_MAIN()
+
+TEST(launch_diagnostics_runs_the_headset_report_beside_the_game_and_says_what_is_missing) {
+    CHECK_EQ(DiagnosticsStamp(2026, 10, 31, 9, 5, 7), std::string("2026-10-31_09-05-07"));
+    CHECK(ParseOptions({"--report-dir", "C:/r"}).report_dir == "C:/r");
+    CHECK(TestSwitchProblems(ParseOptions({"--report-dir", "C:/r"}), {}).empty());          // reaches no server
+    Rig r;
+    r.Install("D2R-VR");
+    const fs::path out = r.sb.root / "desk";
+    {
+        // an older D2R VR Authentic: no report program - one line that says to update, not an error
+        const DiagnosticsPlan d = r.Make().Diagnostics(out, "2026-10-31_09-05-07", false);
+        CHECK(d.kind == DiagnosticsPlan::Kind::Missing);
+        CHECK(d.message.find("D2R_VR_Headset_Report.exe") != std::string::npos && d.message.find("Update D2R VR Authentic") != std::string::npos);
+        CHECK(d.args.empty());
+    }
+    tt::Write(r.sb.game / kHeadsetReportExe, "report");
+    {
+        const DiagnosticsPlan d = r.Make().Diagnostics(out, "2026-10-31_09-05-07", false);
+        CHECK(d.kind == DiagnosticsPlan::Kind::Ready);
+        CHECK(d.exe == r.sb.game / kHeadsetReportExe);
+        CHECK(d.report == out / "D2R_VR_headset_report_2026-10-31_09-05-07.txt");
+        REQUIRE(d.args.size() == 5);
+        CHECK_EQ(d.args[0], std::string("--no-wait"));                                  // no window, no "press Enter": the launcher shows the result
+        CHECK(d.args[1] == "--out" && d.args[2] == DisplayPath(d.report));
+        CHECK(d.args[3] == "--game" && d.args[4] == DisplayPath(r.sb.game));
+    }
+    {
+        const DiagnosticsPlan d = r.Make().Diagnostics(out, "x", true);                // the game holds the headset
+        CHECK(d.kind == DiagnosticsPlan::Kind::GameRunning);
+        CHECK(d.message.find("close the game first") != std::string::npos && d.args.empty());
+    }
+    r.opt.game = U(r.sb.root / "nothing");                                              // no game folder
+    const DiagnosticsPlan d = r.Make().Diagnostics(out, "x", false);
+    CHECK(d.kind == DiagnosticsPlan::Kind::NoGame && d.message.find("Browse") != std::string::npos);
+}

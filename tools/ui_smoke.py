@@ -567,8 +567,8 @@ def main():
             check(gui.text("message") == "Choose a mod and press Play.", "the first message (%r)" % gui.text("message"))
             check(gui.enabled("play") and gui.text("play_reason") == "", "Play is on for the preselected Authentic")
             check(gui.radio_checked(0) and not gui.radio_checked(1), "Authentic's radio button is the checked one")
-            check(gui.tab_order() == [101, 102, 1000, 3001, 4000, 2000, 2001, 107, 111, 113, 110, 119, 114, 116, 118],
-                  "Tab visits game folder, Browse, the checked card, the Install button of the card that is not installed, the Uninstall button of the installed one, the Website links, runtime, Play, the mod's Settings, the checkbox, Install / update mods, Logs, About, the log (%s)" % gui.tab_order())
+            check(gui.tab_order() == [101, 102, 1000, 3001, 4000, 2000, 2001, 107, 111, 113, 110, 119, 121, 114, 116, 118],
+                  "Tab visits game folder, Browse, the checked card, the Install button of the card that is not installed, the Uninstall button of the installed one, the Website links, runtime, Play, the mod's Settings, the checkbox, Install / update mods, Launch diagnostics, Logs, About, the log (%s)" % gui.tab_order())
             check(gui.tab_order("mod_list") == [1000, 3001, 4000, 2000, 2001], "the list gives Tab the checked radio button (the arrow keys move between the cards), the Install button and the Website links (%s)" % gui.tab_order("mod_list"))
             check(gui.text("install_view").replace("&", "") == "Install / update mods..." and gui.enabled("install_view"), "the button 'Install / update mods...' is there and on")
             # the mod's settings button: named for the mod, as big as Play, right after it on the same row; the checkbox is below that row

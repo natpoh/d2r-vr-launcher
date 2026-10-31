@@ -113,6 +113,8 @@ Options ParseOptions(const std::vector<std::string>& args) {
             value(&o.pin_file);
         } else if (a == "--no-update-check") {
             o.no_update_check = true;
+        } else if (a == "--report-dir") {
+            value(&o.report_dir);
         } else if (a == "--install-now") {
             o.install_now = true;
         } else if (a == "--shot-now") {
@@ -167,6 +169,7 @@ const char* UsageText() {
            "  --size WxH         the first size of the window's client area, in dp (a test aid)\n"
            "  --no-search        do not look for installed games; only the remembered folder counts (a test aid)\n"
            "  --processes LIST   the processes that \"run\" are exactly these, e.g. D2R.exe; - for none (a test aid: the real process list is not read)\n"
+           "  --report-dir DIR   Launch diagnostics writes its report here, not on the Desktop, and opens no Explorer (a test aid)\n"
            "  test aids that reach a web server (only together with VRML_ALLOW_HTTP_HOST, a loopback test server):\n"
            "  --install-run L    no window: install these pieces like the view's Install button (loader,authentic,unleashed), one line each, exit 0 or the first failure's code\n"
            "  --accept-unverified  a release without a published checksum is accepted (the view does not ask)\n"
@@ -499,6 +502,37 @@ PlayState Model::CanPlay(bool game_running) const {
     }
     p.can = true;
     return p;
+}
+
+std::string DiagnosticsStamp(int year, int month, int day, int hour, int minute, int second) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%04d-%02d-%02d_%02d-%02d-%02d", year, month, day, hour, minute, second);
+    return b;
+}
+
+DiagnosticsPlan Model::Diagnostics(const fs::path& reportDir, const std::string& stamp, bool game_running) const {
+    DiagnosticsPlan d;
+    const GameChoice* g = game();
+    if (!g || !g->is_game) {
+        d.message = "Launch diagnostics: pick the folder Diablo II: Resurrected is installed in first (Browse...).";
+        return d;
+    }
+    d.exe = g->install.dir / kHeadsetReportExe;
+    if (!IsFile(d.exe)) {
+        d.kind = DiagnosticsPlan::Kind::Missing;
+        d.message = std::string("Launch diagnostics needs D2R VR Headset Report (") + kHeadsetReportExe +
+                    " in the game folder), which D2R VR Authentic installs since 0.192.22. Update D2R VR Authentic (Install / update mods...), then try again.";
+        return d;
+    }
+    if (game_running) {
+        d.kind = DiagnosticsPlan::Kind::GameRunning;
+        d.message = "Launch diagnostics: close the game first (Save & Exit, then quit). While the game runs the headset is the game's and cannot be asked.";
+        return d;
+    }
+    d.kind = DiagnosticsPlan::Kind::Ready;
+    d.report = reportDir / ("D2R_VR_headset_report_" + stamp + ".txt");
+    d.args = {"--no-wait", "--out", DisplayPath(d.report), "--game", DisplayPath(g->install.dir)};
+    return d;
 }
 
 StartOutcome Model::Play(bool dry_run, bool skip_first_start_check) {
